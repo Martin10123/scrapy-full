@@ -1,0 +1,1 @@
+"""JobTrend AI package."""
