@@ -17,11 +17,14 @@ colors:
   muted: "#5f6368"
 typography:
   h1:
-    fontFamily: Inter, Roboto, Arial, sans-serif
+    fontFamily: Geist, Inter, Roboto, Arial, sans-serif
     fontSize: 1.5rem
   body-md:
-    fontFamily: Inter, Roboto, Arial, sans-serif
+    fontFamily: Geist, Inter, Roboto, Arial, sans-serif
     fontSize: 1rem
+  mono:
+    fontFamily: "Geist Mono", ui-monospace, SFMono-Regular, Consolas, monospace
+    fontSize: 0.95rem
 rounded:
   sm: 6px
   md: 12px
@@ -54,7 +57,17 @@ The palette is rooted in high-contrast neutrals and a single accent color.
 - **Neutral (#F7F5F2):** Warm limestone foundation, softer than pure white.
 ```
 
-An agent that reads this file will produce a UI with deep ink headlines in Public Sans, a warm limestone background, and Boston Clay call-to-action buttons.
+## Typography
+
+Geist is the default typeface for the dashboard. Use it everywhere the interface shows text: headers, labels, body copy, filters, table cells, and CTA text. Geist Mono is reserved for numbers, KPI values, tabular metrics, and code-like content so analytics remain visually aligned.
+
+- **Primary font:** Geist (sans-serif), available from Google Fonts.
+- **Monospaced font:** Geist Mono for numbers and code-like content.
+- **Fallbacks:** Inter, SF Pro, DM Sans if Geist is unavailable.
+- **Weights:** 400 regular, 500 medium, 600 semibold, 700 bold.
+- **Sizes:** 12px labels, 14px body, 16-18px subtitles, 20-24px section titles, 24-32px KPI values.
+
+An agent that reads this file will produce a UI with deep ink headlines in Geist, a warm limestone background, and Boston Clay call-to-action buttons.
 
 ## Getting Started
 
