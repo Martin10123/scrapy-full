@@ -1,103 +1,49 @@
 <script setup lang="ts">
-import axios from 'axios'
-import { Chart, registerables, type ChartConfiguration, type Plugin } from 'chart.js'
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed } from 'vue'
+import Button from 'primevue/button'
+import Card from 'primevue/card'
+import InputText from 'primevue/inputtext'
+import Select from 'primevue/select'
+import Skeleton from 'primevue/skeleton'
+import Tag from 'primevue/tag'
+import { useDashboard } from './composables/useDashboard'
+import { useDashboardCharts } from './composables/useDashboardCharts'
+import {
+  confidenceSeverityMap,
+  formatDate,
+  formatSalary,
+  remoteTypeSeverityMap,
+  remoteTypeOptions,
+  type ConfidenceLevel
+} from './helpers/dashboard'
 
-Chart.register(...registerables)
+const {
+  loading,
+  refreshing,
+  lastUpdated,
+  searchQuery,
+  selectedCity,
+  selectedMode,
+  currentPage,
+  dashboard,
+  cityOptions,
+  filteredJobs,
+  totalPages,
+  pagedJobs,
+  refreshDashboard
+} = useDashboard()
 
-type RemoteType = 'remoto' | 'híbrido' | 'presencial'
-type ConfidenceLevel = 'high' | 'medium' | 'low' | 'insufficient-data'
+const dashboardCharts = useDashboardCharts(dashboard, loading)
+const chartCanvasRefs = [
+  dashboardCharts.trendCanvas,
+  dashboardCharts.skillsCanvas,
+  dashboardCharts.forecastCanvas,
+  dashboardCharts.citiesCanvas,
+  dashboardCharts.modalityCanvas,
+  dashboardCharts.seniorityCanvas
+]
 
-interface JobItem {
-  title: string
-  company: string
-  city: string
-  remote_type: RemoteType
-  salary_min: number | null
-  salary_max: number | null
-  currency: string
-  published_at: string
-  url: string
-}
-
-interface OverviewData {
-  total_jobs: number
-  top_sources: Array<{ label?: string; source?: string; count: number }>
-  top_cities: Array<{ label?: string; city?: string; count: number }>
-  remote_type_distribution: Array<{ label?: string; remote_type?: string; count: number }>
-  seniority_distribution: Array<{ label?: string; seniority?: string; count: number }>
-  monthly_trend: Array<{ month: string; count: number }>
-}
-
-interface ForecastSkill {
-  skill: string
-  history: Array<{ month: string; count: number }>
-  forecast: Array<{ month: string; count: number }>
-  growth_pct: number
-  projected_total: number
-}
-
-interface ConfidenceRow {
-  skill: string
-  mae: number
-  mape_pct: number
-  confidence_level: ConfidenceLevel
-}
-
-interface DashboardData {
-  overview: OverviewData
-  topSkills: Array<{ skill: string; count: number }>
-  forecastSkills: ForecastSkill[]
-  confidenceRows: ConfidenceRow[]
-  jobs: JobItem[]
-}
-
-const apiBase = 'http://127.0.0.1:8000'
-const jobsPerPage = 6
-const forecastStartIndex = 5
-const palette = {
-  primary: '#6366f1',
-  teal: '#22d3ee',
-  yellow: '#fbbf24',
-  magenta: '#ec4899',
-  orange: '#f97316',
-  border: 'rgba(255, 255, 255, 0.08)',
-  textMuted: '#9ca3af',
-  textStrong: '#f9fafb'
-} as const
-
-const chartInstances: Chart[] = []
-const fallbackData = createFallbackDashboard()
-
-const loading = ref(true)
-const refreshing = ref(false)
-const lastUpdated = ref('Cargando datos...')
-const searchQuery = ref('')
-const selectedCity = ref('all')
-const selectedMode = ref('all')
-const currentPage = ref(1)
-
-const trendCanvas = ref<HTMLCanvasElement | null>(null)
-const skillsCanvas = ref<HTMLCanvasElement | null>(null)
-const forecastCanvas = ref<HTMLCanvasElement | null>(null)
-const citiesCanvas = ref<HTMLCanvasElement | null>(null)
-const modalityCanvas = ref<HTMLCanvasElement | null>(null)
-const seniorityCanvas = ref<HTMLCanvasElement | null>(null)
-
-const dashboard = ref<DashboardData>(fallbackData)
-
-const modalBadgeClass: Record<RemoteType, string> = {
-  remoto: 'badge badge--blue',
-  'híbrido': 'badge badge--green',
-  presencial: 'badge badge--gray'
-}
-
-const confidenceBadgeClass: Record<ConfidenceLevel, string> = {
-  high: 'badge badge--success',
-  medium: 'badge badge--warning',
-  low: 'badge badge--danger',
-  'insufficient-data': 'badge badge--gray'
-}
+void chartCanvasRefs.length
 
 const kpis = computed(() => {
   const overview = dashboard.value.overview
@@ -113,1446 +59,417 @@ const kpis = computed(() => {
   return [
     {
       label: 'Total ofertas',
-      value: formatCompactNumber(overview.total_jobs),
-      detail: 'ofertas analizadas',
+      value: new Intl.NumberFormat('es-CO', { notation: 'compact', maximumFractionDigits: 1 }).format(overview.total_jobs),
+      detail: 'vacantes analizadas en la fuente conectada',
       icon: 'pi pi-briefcase',
-      tone: 'var(--kpi-primary)'
+      tone: '#2563eb'
     },
     {
       label: 'Ciudad principal',
       value: primaryCity?.label ?? primaryCity?.city ?? 'Bogotá',
       detail: 'mayor volumen de publicaciones',
       icon: 'pi pi-map-marker',
-      tone: 'var(--kpi-teal)'
+      tone: '#06b6d4'
     },
     {
       label: 'Salario promedio',
-      value: formatCurrency(avgSalary),
-      detail: 'estimado sobre vacantes visibles',
-      icon: 'pi pi-dollar',
-      tone: 'var(--kpi-yellow)'
+      value: formatSalary({
+        title: '',
+        company: '',
+        city: '',
+        remote_type: 'presencial',
+        salary_min: avgSalary,
+        salary_max: null,
+        currency: 'COP',
+        published_at: '',
+        url: ''
+      }),
+      detail: 'estimado sobre las vacantes visibles',
+      icon: 'pi pi-wallet',
+      tone: '#f59e0b'
     },
     {
-      label: '% Trabajo remoto',
+      label: 'Trabajo remoto',
       value: `${Math.round((remoteJobs / Math.max(dashboard.value.jobs.length, 1)) * 100)}%`,
-      detail: 'vacantes remotas detectadas',
+      detail: 'participación de vacantes remotas',
       icon: 'pi pi-wifi',
-      tone: 'var(--kpi-magenta)'
+      tone: '#ec4899'
     }
   ]
 })
 
-const cityOptions = computed(() => {
-  const cities = new Set(dashboard.value.jobs.map((job) => job.city).filter(Boolean))
-  return ['all', ...Array.from(cities)]
-})
+const citySelectOptions = computed(() => cityOptions.value.map((city) => ({
+  label: city === 'all' ? 'Todas las ciudades' : city,
+  value: city
+})))
 
-const filteredJobs = computed(() => {
-  const query = searchQuery.value.trim().toLowerCase()
-
-  return dashboard.value.jobs.filter((job) => {
-    const matchesQuery = !query || [job.title, job.company, job.city, job.remote_type, formatSalary(job)]
-      .join(' ')
-      .toLowerCase()
-      .includes(query)
-    const matchesCity = selectedCity.value === 'all' || job.city === selectedCity.value
-    const matchesMode = selectedMode.value === 'all' || job.remote_type === selectedMode.value
-    return matchesQuery && matchesCity && matchesMode
-  })
-})
-
-const totalPages = computed(() => Math.max(Math.ceil(filteredJobs.value.length / jobsPerPage), 1))
-const pagedJobs = computed(() => {
-  const start = (currentPage.value - 1) * jobsPerPage
-  return filteredJobs.value.slice(start, start + jobsPerPage)
-})
-
-watch([searchQuery, selectedCity, selectedMode], () => {
-  currentPage.value = 1
-})
-
-watch(filteredJobs, () => {
-  if (currentPage.value > totalPages.value) {
-    currentPage.value = totalPages.value
-  }
-})
-
-onMounted(async () => {
-  await loadDashboard(false)
-})
-
-onBeforeUnmount(() => {
-  destroyCharts()
-})
-
-async function loadDashboard(showSpinner: boolean) {
-  if (showSpinner) {
-    refreshing.value = true
-  }
-  else {
-    loading.value = true
+function confidenceLabel(level: ConfidenceLevel) {
+  if (level === 'high') {
+    return 'Alta'
   }
 
-  destroyCharts()
-
-  try {
-    const [overviewResponse, forecastResponse, confidenceResponse, jobsResponse] = await Promise.all([
-      axios.get(`${apiBase}/jobs/analytics/overview?top_n=8`),
-      axios.get(`${apiBase}/jobs/analytics/forecast?top_n=5&months_ahead=3`),
-      axios.get(`${apiBase}/jobs/analytics/forecast-confidence?top_n=5&test_horizon_months=3`),
-      axios.get(`${apiBase}/jobs/search?limit=50&offset=0`)
-    ])
-
-    dashboard.value = transformLiveData(overviewResponse.data, forecastResponse.data, confidenceResponse.data, jobsResponse.data)
-    lastUpdated.value = `Actualizado ${new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}`
-  }
-  catch {
-    dashboard.value = fallbackData
-    lastUpdated.value = 'Usando datos de demostración'
-  }
-  finally {
-    loading.value = false
-    refreshing.value = false
-    await nextTick()
-    renderCharts()
-  }
-}
-
-function refreshDashboard() {
-  void loadDashboard(true)
-}
-
-function renderCharts() {
-  destroyCharts()
-
-  if (trendCanvas.value) {
-    const labels = dashboard.value.overview.monthly_trend.map((item) => item.month)
-    const counts = dashboard.value.overview.monthly_trend.map((item) => item.count)
-
-    chartInstances.push(createChart(trendCanvas.value, {
-      type: 'line',
-      data: {
-        labels,
-        datasets: [
-          {
-            label: 'Ofertas',
-            data: counts,
-            borderColor: palette.primary,
-            backgroundColor: (context) => createAreaGradient(context.chart, palette.primary),
-            fill: true,
-            pointRadius: 3,
-            pointHoverRadius: 5,
-            pointBackgroundColor: '#ffffff',
-            pointBorderColor: palette.primary,
-            borderWidth: 2.5,
-            tension: 0.35
-          }
-        ]
-      },
-      options: commonLineOptions()
-    } as ChartConfiguration<'line', number[], string>))
+  if (level === 'medium') {
+    return 'Media'
   }
 
-  if (skillsCanvas.value) {
-    const topSkills = dashboard.value.topSkills.slice(0, 8)
-
-    chartInstances.push(createChart(skillsCanvas.value, {
-      type: 'bar',
-      data: {
-        labels: topSkills.map((item) => item.skill),
-        datasets: [
-          {
-            label: 'Menciones',
-            data: topSkills.map((item) => item.count),
-            borderRadius: 10,
-            backgroundColor: palette.primary,
-            hoverBackgroundColor: '#818cf8',
-            barThickness: 16
-          }
-        ]
-      },
-      options: {
-        ...commonChartOptions(),
-        indexAxis: 'y',
-        plugins: {
-          legend: { display: false }
-        },
-        scales: {
-          x: scaleOptions(true),
-          y: scaleOptions(false)
-        }
-      }
-    } as ChartConfiguration<'bar', number[], string>))
+  if (level === 'low') {
+    return 'Baja'
   }
 
-  if (forecastCanvas.value) {
-    const forecastData = dashboard.value.forecastSkills
-
-    chartInstances.push(createChart(forecastCanvas.value, {
-      type: 'line',
-      data: {
-        labels: buildForecastLabels(forecastData),
-        datasets: forecastData.map((skill, index) => {
-          const color = [palette.primary, palette.teal, palette.orange, palette.magenta, palette.yellow][index % 5]
-          const series = [...skill.history.map((point) => point.count), ...skill.forecast.map((point) => point.count)]
-
-          return {
-            label: skill.skill,
-            data: series,
-            borderColor: color,
-            backgroundColor: `${color}22`,
-            fill: false,
-            pointRadius: 3,
-            pointHoverRadius: 5,
-            borderWidth: 2.5,
-            tension: 0.35,
-            segment: {
-              borderDash: (segmentContext: { p0DataIndex: number; p1DataIndex: number }) => segmentContext.p0DataIndex >= forecastStartIndex - 1 ? [6, 6] : undefined
-            }
-          }
-        })
-      },
-      options: {
-        ...commonChartOptions(),
-        plugins: {
-          legend: {
-            labels: {
-              color: palette.textStrong,
-              usePointStyle: true,
-              pointStyle: 'circle'
-            }
-          }
-        },
-        scales: {
-          x: scaleOptions(false),
-          y: scaleOptions(true)
-        }
-      },
-      plugins: [projectionWindowPlugin]
-    } as ChartConfiguration<'line', number[], string>))
-  }
-
-  if (citiesCanvas.value) {
-    chartInstances.push(createChart(citiesCanvas.value, createDoughnutChart(dashboard.value.overview.top_cities, 'Ciudades')))
-  }
-
-  if (modalityCanvas.value) {
-    chartInstances.push(createChart(modalityCanvas.value, createDoughnutChart(dashboard.value.overview.remote_type_distribution, 'Modalidad')))
-  }
-
-  if (seniorityCanvas.value) {
-    chartInstances.push(createChart(seniorityCanvas.value, createDoughnutChart(dashboard.value.overview.seniority_distribution, 'Seniority')))
-  }
-}
-
-function createChart(canvas: HTMLCanvasElement, config: ChartConfiguration<any, any, any>) {
-  const context = canvas.getContext('2d')
-  if (!context) {
-    throw new Error('No se pudo obtener el contexto del canvas.')
-  }
-
-  return new Chart(context, config)
-}
-
-function destroyCharts() {
-  while (chartInstances.length > 0) {
-    chartInstances.pop()?.destroy()
-  }
-}
-
-function commonChartOptions() {
-  return {
-    responsive: true,
-    maintainAspectRatio: false,
-    interaction: {
-      mode: 'index' as const,
-      intersect: false
-    },
-    plugins: {
-      legend: {
-        labels: {
-          color: palette.textStrong,
-          boxWidth: 12,
-          boxHeight: 12,
-          usePointStyle: true
-        }
-      },
-      tooltip: {
-        backgroundColor: '#111827',
-        titleColor: palette.textStrong,
-        bodyColor: '#e5e7eb',
-        borderColor: palette.border,
-        borderWidth: 1,
-        displayColors: false
-      }
-    }
-  }
-}
-
-function commonLineOptions() {
-  return {
-    ...commonChartOptions(),
-    plugins: {
-      ...commonChartOptions().plugins,
-      legend: { display: false }
-    },
-    scales: {
-      x: scaleOptions(false),
-      y: scaleOptions(true)
-    }
-  }
-}
-
-function scaleOptions(allowGrow: boolean) {
-  return {
-    beginAtZero: true,
-    grid: {
-      color: 'rgba(255, 255, 255, 0.08)'
-    },
-    ticks: {
-      color: palette.textMuted,
-      font: {
-        size: 12
-      },
-      padding: 8
-    },
-    border: {
-      color: 'rgba(255, 255, 255, 0.1)'
-    },
-    suggestedMin: allowGrow ? 0 : undefined
-  }
-}
-
-function createDoughnutChart(entries: Array<{ label?: string; city?: string; remote_type?: string; seniority?: string; count: number }>, title: string) {
-  const colorSet = [palette.primary, palette.teal, palette.yellow, palette.magenta, palette.orange]
-
-  return {
-    type: 'doughnut' as const,
-    data: {
-      labels: entries.map((entry) => entry.label ?? entry.city ?? entry.remote_type ?? entry.seniority ?? 'Otro'),
-      datasets: [
-        {
-          label: title,
-          data: entries.map((entry) => entry.count),
-          backgroundColor: entries.map((_, index) => colorSet[index % colorSet.length]),
-          borderColor: '#1a1a1a',
-          borderWidth: 2,
-          hoverOffset: 6
-        }
-      ]
-    },
-    options: {
-      ...commonChartOptions(),
-      cutout: '64%',
-      plugins: {
-        ...commonChartOptions().plugins,
-        legend: {
-          position: 'bottom' as const,
-          labels: {
-            color: palette.textStrong,
-            usePointStyle: true,
-            pointStyle: 'circle'
-          }
-        }
-      }
-    }
-  } satisfies ChartConfiguration<'doughnut', number[], string>
-}
-
-const projectionWindowPlugin: Plugin<'line'> = {
-  id: 'projectionWindow',
-  beforeDatasetsDraw(chart) {
-    const xScale = chart.scales.x
-    const area = chart.chartArea
-    const start = xScale.getPixelForValue(forecastStartIndex)
-    const context = chart.ctx
-
-    context.save()
-    context.fillStyle = 'rgba(99, 102, 241, 0.08)'
-    context.fillRect(start, area.top, area.right - start, area.bottom - area.top)
-    context.strokeStyle = 'rgba(99, 102, 241, 0.35)'
-    context.setLineDash([5, 6])
-    context.beginPath()
-    context.moveTo(start, area.top)
-    context.lineTo(start, area.bottom)
-    context.stroke()
-    context.restore()
-  }
-}
-
-function createAreaGradient(chart: Chart, color: string) {
-  const { ctx, chartArea } = chart
-  const gradient = ctx.createLinearGradient(0, chartArea.top, 0, chartArea.bottom)
-  gradient.addColorStop(0, `${color}70`)
-  gradient.addColorStop(1, `${color}00`)
-  return gradient
-}
-
-function buildForecastLabels(forecastData: ForecastSkill[]) {
-  const firstSkill = forecastData[0]
-  if (!firstSkill) {
-    return []
-  }
-
-  return [...firstSkill.history.map((point) => point.month), ...firstSkill.forecast.map((point) => point.month)]
-}
-
-function formatCompactNumber(value: number) {
-  return new Intl.NumberFormat('es-CO', { notation: 'compact', maximumFractionDigits: 1 }).format(value)
-}
-
-function formatCurrency(value: number) {
-  if (!value) {
-    return 'N/D'
-  }
-
-  return new Intl.NumberFormat('es-CO', {
-    style: 'currency',
-    currency: 'COP',
-    maximumFractionDigits: 0
-  }).format(value)
-}
-
-function formatSalary(job: JobItem) {
-  if (job.salary_min && job.salary_max) {
-    return `${formatCurrency(job.salary_min)} - ${formatCurrency(job.salary_max)}`
-  }
-
-  if (job.salary_min) {
-    return formatCurrency(job.salary_min)
-  }
-
-  if (job.salary_max) {
-    return formatCurrency(job.salary_max)
-  }
-
-  return 'Salario no publicado'
-}
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('es-CO', {
-    day: '2-digit',
-    month: 'short'
-  }).format(new Date(value))
-}
-
-function transformLiveData(overview: any, forecast: any, confidence: any, jobsPayload: any): DashboardData {
-  const jobs = Array.isArray(jobsPayload?.items) ? jobsPayload.items : Array.isArray(jobsPayload) ? jobsPayload : []
-
-  return {
-    overview: {
-      total_jobs: overview?.total_jobs ?? jobs.length,
-      top_sources: Array.isArray(overview?.top_sources) ? overview.top_sources : fallbackData.overview.top_sources,
-      top_cities: Array.isArray(overview?.top_cities) && overview.top_cities.length > 0 ? overview.top_cities : fallbackData.overview.top_cities,
-      remote_type_distribution: Array.isArray(overview?.remote_type_distribution) && overview.remote_type_distribution.length > 0 ? overview.remote_type_distribution : fallbackData.overview.remote_type_distribution,
-      seniority_distribution: Array.isArray(overview?.seniority_distribution) && overview.seniority_distribution.length > 0 ? overview.seniority_distribution : fallbackData.overview.seniority_distribution,
-      monthly_trend: Array.isArray(overview?.monthly_trend) && overview.monthly_trend.length > 0 ? overview.monthly_trend : fallbackData.overview.monthly_trend
-    },
-    topSkills: Array.isArray(overview?.top_skills) && overview.top_skills.length > 0
-      ? overview.top_skills.map((item: { skill?: string; label?: string; count: number }) => ({
-          skill: item.skill ?? item.label ?? 'Skill',
-          count: item.count
-        }))
-      : fallbackData.topSkills,
-    forecastSkills: Array.isArray(forecast?.skills) && forecast.skills.length > 0 ? forecast.skills : fallbackData.forecastSkills,
-    confidenceRows: Array.isArray(confidence?.skills) && confidence.skills.length > 0 ? confidence.skills : fallbackData.confidenceRows,
-    jobs: Array.isArray(jobs) && jobs.length > 0 ? normalizeJobs(jobs) : fallbackData.jobs
-  }
-}
-
-function normalizeJobs(items: any[]): JobItem[] {
-  return items.slice(0, 50).map((item) => ({
-    title: item.title ?? 'Sin título',
-    company: item.company ?? 'Empresa no disponible',
-    city: item.city ?? 'Bogotá',
-    remote_type: normalizeRemoteType(item.remote_type),
-    salary_min: item.salary_min ?? null,
-    salary_max: item.salary_max ?? null,
-    currency: item.currency ?? 'COP',
-    published_at: item.published_at ?? new Date().toISOString(),
-    url: item.url ?? '#'
-  }))
-}
-
-function normalizeRemoteType(value: unknown): RemoteType {
-  const normalized = String(value ?? '').toLowerCase()
-
-  if (normalized === 'remote' || normalized === 'remoto') {
-    return 'remoto'
-  }
-
-  if (normalized === 'hybrid' || normalized === 'híbrido' || normalized === 'hibrido') {
-    return 'híbrido'
-  }
-
-  return 'presencial'
-}
-
-function createFallbackDashboard(): DashboardData {
-  const jobs: JobItem[] = [
-    { title: 'Senior Python Engineer', company: 'Nuva', city: 'Bogotá', remote_type: 'remoto', salary_min: 9000000, salary_max: 12000000, currency: 'COP', published_at: '2026-05-08T10:00:00Z', url: '#' },
-    { title: 'Data Analyst', company: 'Rappi', city: 'Medellín', remote_type: 'híbrido', salary_min: 5500000, salary_max: 7800000, currency: 'COP', published_at: '2026-05-07T10:00:00Z', url: '#' },
-    { title: 'Frontend Developer React', company: 'Alegra', city: 'Bogotá', remote_type: 'remoto', salary_min: 7000000, salary_max: 9500000, currency: 'COP', published_at: '2026-05-06T10:00:00Z', url: '#' },
-    { title: 'DevOps Engineer', company: 'Addi', city: 'Cali', remote_type: 'híbrido', salary_min: 8500000, salary_max: 11000000, currency: 'COP', published_at: '2026-05-05T10:00:00Z', url: '#' },
-    { title: 'ML Engineer', company: 'Habi', city: 'Bogotá', remote_type: 'remoto', salary_min: 10000000, salary_max: 14000000, currency: 'COP', published_at: '2026-05-04T10:00:00Z', url: '#' },
-    { title: 'Backend Node.js Developer', company: 'Bold', city: 'Barranquilla', remote_type: 'presencial', salary_min: 6800000, salary_max: 9200000, currency: 'COP', published_at: '2026-05-03T10:00:00Z', url: '#' },
-    { title: 'BI Specialist', company: 'Siesa', city: 'Bogotá', remote_type: 'híbrido', salary_min: 6200000, salary_max: 8300000, currency: 'COP', published_at: '2026-05-02T10:00:00Z', url: '#' },
-    { title: 'Product Data Scientist', company: 'Mercado Libre', city: 'Medellín', remote_type: 'remoto', salary_min: 11000000, salary_max: 15000000, currency: 'COP', published_at: '2026-05-01T10:00:00Z', url: '#' }
-  ]
-
-  return {
-    overview: {
-      total_jobs: 1248,
-      top_sources: [
-        { label: 'Computrabajo', count: 628 },
-        { label: 'Magneto', count: 420 },
-        { label: 'LinkedIn', count: 200 }
-      ],
-      top_cities: [
-        { label: 'Bogotá', count: 560 },
-        { label: 'Medellín', count: 260 },
-        { label: 'Cali', count: 140 },
-        { label: 'Barranquilla', count: 110 }
-      ],
-      remote_type_distribution: [
-        { label: 'Remoto', count: 41 },
-        { label: 'Híbrido', count: 34 },
-        { label: 'Presencial', count: 25 }
-      ],
-      seniority_distribution: [
-        { label: 'Junior', count: 18 },
-        { label: 'Mid', count: 47 },
-        { label: 'Senior', count: 35 }
-      ],
-      monthly_trend: [
-        { month: 'Ene', count: 120 },
-        { month: 'Feb', count: 165 },
-        { month: 'Mar', count: 182 },
-        { month: 'Abr', count: 205 },
-        { month: 'May', count: 232 },
-        { month: 'Jun', count: 268 },
-        { month: 'Jul', count: 291 },
-        { month: 'Ago', count: 318 }
-      ]
-    },
-    topSkills: [
-      { skill: 'Python', count: 184 },
-      { skill: 'SQL', count: 168 },
-      { skill: 'Docker', count: 143 },
-      { skill: 'React', count: 129 },
-      { skill: 'AWS', count: 118 },
-      { skill: 'TypeScript', count: 102 },
-      { skill: 'Kafka', count: 88 },
-      { skill: 'Node.js', count: 81 }
-    ],
-    forecastSkills: [
-      {
-        skill: 'Python',
-        history: [
-          { month: 'Ene', count: 42 },
-          { month: 'Feb', count: 48 },
-          { month: 'Mar', count: 51 },
-          { month: 'Abr', count: 56 },
-          { month: 'May', count: 60 }
-        ],
-        forecast: [
-          { month: 'Jun', count: 64 },
-          { month: 'Jul', count: 70 },
-          { month: 'Ago', count: 76 }
-        ],
-        growth_pct: 27,
-        projected_total: 270
-      },
-      {
-        skill: 'SQL',
-        history: [
-          { month: 'Ene', count: 39 },
-          { month: 'Feb', count: 42 },
-          { month: 'Mar', count: 45 },
-          { month: 'Abr', count: 49 },
-          { month: 'May', count: 53 }
-        ],
-        forecast: [
-          { month: 'Jun', count: 56 },
-          { month: 'Jul', count: 59 },
-          { month: 'Ago', count: 63 }
-        ],
-        growth_pct: 19,
-        projected_total: 226
-      },
-      {
-        skill: 'Docker',
-        history: [
-          { month: 'Ene', count: 30 },
-          { month: 'Feb', count: 34 },
-          { month: 'Mar', count: 38 },
-          { month: 'Abr', count: 41 },
-          { month: 'May', count: 46 }
-        ],
-        forecast: [
-          { month: 'Jun', count: 48 },
-          { month: 'Jul', count: 50 },
-          { month: 'Ago', count: 54 }
-        ],
-        growth_pct: 17,
-        projected_total: 191
-      }
-    ],
-    confidenceRows: [
-      { skill: 'Python', mae: 4.1, mape_pct: 11.2, confidence_level: 'high' },
-      { skill: 'SQL', mae: 5.3, mape_pct: 13.4, confidence_level: 'medium' },
-      { skill: 'Docker', mae: 6.8, mape_pct: 18.2, confidence_level: 'low' }
-    ],
-    jobs
-  }
+  return 'Sin datos'
 }
 </script>
 
 <template>
-  <div class="dashboard-shell">
-    <header class="topbar">
-      <div class="dashboard-container dashboard-container--topbar">
-        <div class="brand-block">
-          <div class="brand-icon">
-            <i class="pi pi-chart-bar" aria-hidden="true" />
+  <div class="min-h-screen bg-slate-50 text-slate-900">
+    <div class="pointer-events-none fixed inset-x-0 top-0 -z-10 h-112 bg-[radial-gradient(circle_at_top_left,rgba(37,99,235,0.14),transparent_30%),radial-gradient(circle_at_top_right,rgba(14,165,233,0.12),transparent_28%)]" />
+
+    <header class="sticky top-0 z-20 border-b border-slate-200/80 bg-white/80 backdrop-blur-xl">
+      <div class="mx-auto flex max-w-400 flex-col gap-4 px-4 py-5 sm:px-6 lg:flex-row lg:items-center lg:justify-between lg:px-8">
+        <div class="flex items-start gap-4">
+          <div class="flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-blue-600 to-cyan-500 text-white shadow-lg shadow-blue-200">
+            <i class="pi pi-chart-line text-xl" aria-hidden="true" />
           </div>
 
           <div>
-            <p class="brand-kicker">Data analytics platform</p>
-            <h1>JobTrend AI</h1>
-            <p class="brand-subtitle">
-              Tendencias del mercado laboral tech en Colombia, con métricas, forecasts y vacantes activas.
+            <p class="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">JobTrend AI</p>
+            <h1 class="mt-1 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
+              Mercado laboral tech claro y accionable
+            </h1>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
+              Conecta tus fuentes de datos y obtén insights, visualizaciones y proyecciones para tomar decisiones informadas sobre la demanda laboral en tecnología.
             </p>
           </div>
         </div>
 
-        <div class="topbar-actions">
-          <span class="status-pill">
-            <span class="status-dot" />
-            {{ lastUpdated }}
-          </span>
-
-          <button class="action-button" type="button" :disabled="refreshing" @click="refreshDashboard">
-            <span v-if="refreshing" class="button-spinner" aria-hidden="true" />
-            <i v-else class="pi pi-refresh" aria-hidden="true" />
-            <span>Actualizar datos</span>
-          </button>
+        <div class="flex flex-wrap items-center gap-3">
+          <Tag :value="lastUpdated" severity="info" class="rounded-full!" />
+          <Button label="Actualizar" icon="pi pi-refresh" :loading="refreshing" @click="refreshDashboard" />
         </div>
       </div>
     </header>
 
-    <main class="dashboard-main">
-      <div class="dashboard-container dashboard-container--content">
-        <section class="kpi-grid">
-        <article v-for="kpi in kpis" :key="kpi.label" class="panel kpi-card">
-          <div class="kpi-icon" :style="{ '--kpi-color': kpi.tone }">
-            <i :class="kpi.icon" aria-hidden="true" />
-          </div>
+    <main class="mx-auto flex max-w-400 flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      <section class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <Card v-for="kpi in kpis" :key="kpi.label" class="overflow-hidden border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">{{ kpi.label }}</p>
+                <div class="mt-3 text-3xl font-semibold tracking-tight text-slate-950">{{ kpi.value }}</div>
+                <p class="mt-2 text-sm leading-6 text-slate-600">{{ kpi.detail }}</p>
+              </div>
 
-          <div class="kpi-copy">
-            <p>{{ kpi.label }}</p>
-            <h2>{{ kpi.value }}</h2>
-            <span>{{ kpi.detail }}</span>
-          </div>
-        </article>
+              <div class="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl" :style="{ backgroundColor: `${kpi.tone}15`, color: kpi.tone }">
+                <i :class="kpi.icon" class="text-xl" aria-hidden="true" />
+              </div>
+            </div>
+          </template>
+        </Card>
       </section>
 
-      <section class="chart-grid chart-grid--primary">
-        <article class="panel chart-panel chart-panel--wide">
-          <div class="panel-heading">
-            <div>
-              <p class="section-kicker">Tendencia</p>
-              <h3>Oferta mensual</h3>
+      <section class="grid gap-6 lg:grid-cols-12">
+        <Card class="xl:col-span-7 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Tendencia</p>
+                <h2 class="mt-1 text-xl font-semibold text-slate-950">Oferta mensual</h2>
+              </div>
+              <Tag value="Area chart" severity="secondary" class="rounded-full!" />
             </div>
-            <span class="panel-chip">AreaChart</span>
-          </div>
 
-          <div v-if="loading" class="loading-chart loading-chart--large">
-            <div class="loading-line loading-line--title" />
-            <div class="loading-line loading-line--chart" />
-          </div>
-          <div v-else class="chart-frame">
-            <canvas ref="trendCanvas" />
-          </div>
-        </article>
-
-        <article class="panel chart-panel">
-          <div class="panel-heading">
-            <div>
-              <p class="section-kicker">Skills</p>
-              <h3>Top skills</h3>
+            <div v-if="loading" class="space-y-3">
+              <Skeleton height="1.5rem" width="40%" />
+              <Skeleton height="18rem" />
             </div>
-            <span class="panel-chip">BarChart</span>
-          </div>
+            <div v-else class="h-64 sm:h-72 lg:h-80">
+              <canvas :ref="dashboardCharts.trendCanvas" />
+            </div>
+          </template>
+        </Card>
 
-          <div v-if="loading" class="loading-chart">
-            <div class="loading-line loading-line--title" />
-            <div class="loading-line loading-line--chart" />
-          </div>
-          <div v-else class="chart-frame chart-frame--short">
-            <canvas ref="skillsCanvas" />
-          </div>
-        </article>
+        <Card class="xl:col-span-5 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Skills</p>
+                <h2 class="mt-1 text-xl font-semibold text-slate-950">Top skills</h2>
+              </div>
+              <Tag value="Bar chart" severity="secondary" class="rounded-full!" />
+            </div>
+
+            <div v-if="loading" class="space-y-3">
+              <Skeleton height="1.5rem" width="32%" />
+              <Skeleton height="18rem" />
+            </div>
+            <div v-else class="h-64 sm:h-72 lg:h-80">
+              <canvas :ref="dashboardCharts.skillsCanvas" />
+            </div>
+          </template>
+        </Card>
       </section>
 
-      <section class="chart-grid chart-grid--secondary">
-        <article class="panel chart-panel chart-panel--wide">
-          <div class="panel-heading panel-heading--stacked">
-            <div>
-              <p class="section-kicker">Forecast</p>
-              <h3>Demanda proyectada por skill</h3>
+      <section class="grid gap-6 lg:grid-cols-12">
+        <Card class="xl:col-span-8 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Forecast</p>
+                <h2 class="mt-1 text-xl font-semibold text-slate-950">Demanda proyectada por skill</h2>
+              </div>
+
+              <div class="flex flex-wrap gap-2">
+                  <Tag
+                    v-for="skill in dashboard.forecastSkills"
+                    :key="skill.skill"
+                    :value="`${skill.skill} ${skill.growth_pct >= 0 ? '+' : ''}${skill.growth_pct}%`"
+                    :severity="skill.growth_pct >= 0 ? 'info' : 'danger'"
+                    class="rounded-full!"
+                  />
+              </div>
             </div>
 
-            <div class="forecast-badges">
-              <span
-                v-for="skill in dashboard.forecastSkills"
-                :key="skill.skill"
-                class="forecast-badge"
-              >
-                <strong>{{ skill.skill }}</strong>
-                <span :class="skill.growth_pct >= 0 ? 'badge badge--success' : 'badge badge--danger'">
-                  {{ skill.growth_pct >= 0 ? '+' : '' }}{{ skill.growth_pct }}%
-                </span>
+            <div v-if="loading" class="space-y-3">
+              <Skeleton height="1.5rem" width="44%" />
+              <Skeleton height="20rem" />
+            </div>
+            <div v-else class="h-64 sm:h-80 lg:h-88">
+              <canvas :ref="dashboardCharts.forecastCanvas" />
+            </div>
+          </template>
+        </Card>
+
+        <Card class="xl:col-span-4 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Mix del mercado</p>
+                <h2 class="mt-1 text-xl font-semibold text-slate-950">Ciudades, modalidad y seniority</h2>
+              </div>
+              <Tag value="Pie charts" severity="secondary" class="rounded-full!" />
+            </div>
+
+            <div class="grid gap-4">
+              <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                  <h3 class="text-sm font-semibold text-slate-700">Ciudades</h3>
+                  <Tag value="Top 4" severity="info" class="rounded-full!" />
+                </div>
+                <div v-if="loading">
+                  <Skeleton height="11rem" />
+                </div>
+                  <div v-else class="h-40 sm:h-44">
+                    <canvas :ref="dashboardCharts.citiesCanvas" />
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                  <h3 class="text-sm font-semibold text-slate-700">Modalidad</h3>
+                  <Tag value="Remote mix" severity="info" class="rounded-full!" />
+                </div>
+                <div v-if="loading">
+                  <Skeleton height="11rem" />
+                </div>
+                  <div v-else class="h-40 sm:h-44">
+                    <canvas :ref="dashboardCharts.modalityCanvas" />
+                </div>
+              </div>
+
+              <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+                <div class="mb-3 flex items-center justify-between gap-3">
+                  <h3 class="text-sm font-semibold text-slate-700">Seniority</h3>
+                  <Tag value="Experience" severity="info" class="rounded-full!" />
+                </div>
+                <div v-if="loading">
+                  <Skeleton height="11rem" />
+                </div>
+                  <div v-else class="h-40 sm:h-44">
+                    <canvas :ref="dashboardCharts.seniorityCanvas" />
+                </div>
+              </div>
+            </div>
+          </template>
+        </Card>
+      </section>
+
+      <section class="grid gap-6 xl:grid-cols-12">
+        <Card class="xl:col-span-4 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="mb-5">
+              <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Señales</p>
+              <h2 class="mt-1 text-xl font-semibold text-slate-950">Fuentes y ciudades destacadas</h2>
+            </div>
+
+            <div class="space-y-5">
+              <div>
+                <p class="mb-3 text-sm font-medium text-slate-600">Top fuentes</p>
+                <div class="flex flex-wrap gap-2">
+                  <Tag
+                    v-for="source in dashboard.overview.top_sources"
+                    :key="source.label ?? source.source ?? String(source.count)"
+                    :value="`${source.label ?? source.source ?? 'Fuente'} · ${source.count}`"
+                    severity="secondary"
+                    class="rounded-full!"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <p class="mb-3 text-sm font-medium text-slate-600">Top ciudades</p>
+                <div class="space-y-2">
+                  <div v-for="city in dashboard.overview.top_cities" :key="city.label ?? city.city ?? String(city.count)" class="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2">
+                    <span class="text-sm font-medium text-slate-700">{{ city.label ?? city.city ?? 'Ciudad' }}</span>
+                    <span class="text-sm font-semibold text-slate-950">{{ city.count }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </template>
+        </Card>
+
+        <Card class="xl:col-span-8 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Forecast confidence</p>
+                <h2 class="mt-1 text-xl font-semibold text-slate-950">Calidad de la proyección</h2>
+              </div>
+            </div>
+
+            <div v-if="loading" class="space-y-3">
+              <Skeleton height="2rem" />
+              <Skeleton height="2rem" />
+              <Skeleton height="2rem" />
+              <Skeleton height="2rem" />
+            </div>
+            <div v-else class="overflow-hidden rounded-2xl border border-slate-200">
+              <table class="min-w-full divide-y divide-slate-200 text-left text-sm">
+                <thead class="bg-slate-50 text-slate-600">
+                  <tr>
+                    <th class="px-4 py-3 font-semibold">Skill</th>
+                    <th class="px-4 py-3 font-semibold">MAE</th>
+                    <th class="px-4 py-3 font-semibold">MAPE</th>
+                    <th class="px-4 py-3 font-semibold">Confianza</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100 bg-white">
+                  <tr v-for="row in dashboard.confidenceRows" :key="row.skill">
+                    <td class="px-4 py-3 font-medium text-slate-800">{{ row.skill }}</td>
+                    <td class="px-4 py-3 text-slate-600">{{ row.mae.toFixed(1) }}</td>
+                    <td class="px-4 py-3 text-slate-600">{{ row.mape_pct.toFixed(1) }}%</td>
+                    <td class="px-4 py-3">
+                      <Tag
+                        :value="confidenceLabel(row.confidence_level)"
+                        :severity="confidenceSeverityMap[row.confidence_level]"
+                        class="rounded-full!"
+                      />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </template>
+        </Card>
+      </section>
+
+      <Card class="border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+        <template #content>
+          <div class="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Vacantes</p>
+              <h2 class="mt-1 text-xl font-semibold text-slate-950">Ofertas con filtros</h2>
+            </div>
+
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 lg:flex-1">
+              <span class="relative block">
+                <i class="pi pi-search pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+                <InputText v-model="searchQuery" placeholder="Buscar por título, empresa o salario" class="w-full pl-10" />
               </span>
+
+              <Select
+                v-model="selectedCity"
+                :options="citySelectOptions"
+                optionLabel="label"
+                optionValue="value"
+                placeholder="Ciudad"
+                class="w-full"
+              />
+
+              <Select
+                v-model="selectedMode"
+                :options="remoteTypeOptions"
+                optionLabel="label"
+                optionValue="value"
+                placeholder="Modalidad"
+                class="w-full"
+              />
             </div>
           </div>
 
-          <div v-if="loading" class="loading-chart loading-chart--large">
-            <div class="loading-line loading-line--title" />
-            <div class="loading-line loading-line--chart" />
+          <div v-if="loading" class="space-y-3">
+            <Skeleton height="2.5rem" />
+            <Skeleton height="2.5rem" />
+            <Skeleton height="2.5rem" />
+            <Skeleton height="2.5rem" />
+            <Skeleton height="2.5rem" />
           </div>
-          <div v-else class="chart-frame chart-frame--forecast">
-            <canvas ref="forecastCanvas" />
-          </div>
-        </article>
-
-        <article class="panel chart-panel">
-          <div class="panel-heading">
-            <div>
-              <p class="section-kicker">Distribución</p>
-              <h3>Mix del mercado</h3>
-            </div>
-            <span class="panel-chip">PieCharts</span>
-          </div>
-
-          <div class="pie-grid">
-            <div class="pie-card">
-              <h4>Ciudades</h4>
-              <div v-if="loading" class="loading-chart loading-chart--compact" />
-              <div v-else class="chart-frame chart-frame--pie">
-                <canvas ref="citiesCanvas" />
-              </div>
-            </div>
-
-            <div class="pie-card">
-              <h4>Modalidad</h4>
-              <div v-if="loading" class="loading-chart loading-chart--compact" />
-              <div v-else class="chart-frame chart-frame--pie">
-                <canvas ref="modalityCanvas" />
-              </div>
-            </div>
-
-            <div class="pie-card">
-              <h4>Seniority</h4>
-              <div v-if="loading" class="loading-chart loading-chart--compact" />
-              <div v-else class="chart-frame chart-frame--pie">
-                <canvas ref="seniorityCanvas" />
-              </div>
-            </div>
-          </div>
-        </article>
-      </section>
-
-      <section class="chart-grid chart-grid--tables">
-        <article class="panel table-panel">
-          <div class="panel-heading">
-            <div>
-              <p class="section-kicker">Forecast confidence</p>
-              <h3>Calidad de la proyección</h3>
-            </div>
-          </div>
-
-          <div v-if="loading" class="loading-table">
-            <div v-for="row in 4" :key="row" class="loading-row" />
-          </div>
-          <div v-else class="table-wrap">
-            <table class="data-table">
-              <thead>
+          <div v-else class="overflow-x-auto rounded-2xl border border-slate-200">
+            <table class="min-w-full divide-y divide-slate-200 text-left text-sm">
+              <thead class="bg-slate-50 text-slate-600">
                 <tr>
-                  <th>Skill</th>
-                  <th>MAE</th>
-                  <th>MAPE</th>
-                  <th>Confianza</th>
+                  <th class="px-4 py-3 font-semibold">Título</th>
+                  <th class="px-4 py-3 font-semibold">Empresa</th>
+                  <th class="px-4 py-3 font-semibold">Ciudad</th>
+                  <th class="px-4 py-3 font-semibold">Modalidad</th>
+                  <th class="px-4 py-3 font-semibold">Salario</th>
+                  <th class="px-4 py-3 font-semibold">Fecha</th>
+                  <th class="px-4 py-3 font-semibold">Link</th>
                 </tr>
               </thead>
-              <tbody>
-                <tr v-for="row in dashboard.confidenceRows" :key="row.skill">
-                  <td>{{ row.skill }}</td>
-                  <td>{{ row.mae.toFixed(1) }}</td>
-                  <td>{{ row.mape_pct.toFixed(1) }}%</td>
-                  <td>
-                    <span :class="confidenceBadgeClass[row.confidence_level]">
-                      {{ row.confidence_level === 'high' ? 'Alta' : row.confidence_level === 'medium' ? 'Media' : row.confidence_level === 'low' ? 'Baja' : 'Sin datos' }}
-                    </span>
+              <tbody class="divide-y divide-slate-100 bg-white">
+                <tr v-for="job in pagedJobs" :key="`${job.title}-${job.company}-${job.published_at}`" class="align-top">
+                  <td class="px-4 py-3 font-medium text-slate-800">{{ job.title }}</td>
+                  <td class="px-4 py-3 text-slate-600">{{ job.company }}</td>
+                  <td class="px-4 py-3 text-slate-600">{{ job.city }}</td>
+                  <td class="px-4 py-3">
+                    <Tag
+                      :value="job.remote_type"
+                      :severity="remoteTypeSeverityMap[job.remote_type]"
+                      class="rounded-full! capitalize"
+                    />
                   </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </article>
-
-        <article class="panel table-panel table-panel--jobs">
-          <div class="panel-heading panel-heading--stacked">
-            <div>
-              <p class="section-kicker">Vacantes</p>
-              <h3>Ofertas con filtros</h3>
-            </div>
-
-            <div class="filter-row">
-              <label class="search-field">
-                <i class="pi pi-search" aria-hidden="true" />
-                <input v-model="searchQuery" type="search" placeholder="Buscar por título, empresa o skill" />
-              </label>
-
-              <select v-model="selectedCity" class="filter-select" aria-label="Filtrar por ciudad">
-                <option value="all">Todas las ciudades</option>
-                <option v-for="city in cityOptions.slice(1)" :key="city" :value="city">
-                  {{ city }}
-                </option>
-              </select>
-
-              <select v-model="selectedMode" class="filter-select" aria-label="Filtrar por modalidad">
-                <option value="all">Todas las modalidades</option>
-                <option value="remoto">Remoto</option>
-                <option value="híbrido">Híbrido</option>
-                <option value="presencial">Presencial</option>
-              </select>
-            </div>
-          </div>
-
-          <div v-if="loading" class="loading-table loading-table--jobs">
-            <div v-for="row in 5" :key="row" class="loading-row loading-row--job" />
-          </div>
-          <div v-else class="table-wrap table-wrap--jobs">
-            <table class="data-table data-table--jobs">
-              <thead>
-                <tr>
-                  <th>Título</th>
-                  <th>Empresa</th>
-                  <th>Ciudad</th>
-                  <th>Modalidad</th>
-                  <th>Salario</th>
-                  <th>Fecha</th>
-                  <th>Link</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="job in pagedJobs" :key="`${job.title}-${job.company}-${job.published_at}`">
-                  <td>{{ job.title }}</td>
-                  <td>{{ job.company }}</td>
-                  <td>{{ job.city }}</td>
-                  <td>
-                    <span :class="modalBadgeClass[job.remote_type]">
-                      {{ job.remote_type }}
-                    </span>
-                  </td>
-                  <td>{{ formatSalary(job) }}</td>
-                  <td>{{ formatDate(job.published_at) }}</td>
-                  <td>
-                    <a class="job-link" :href="job.url" target="_blank" rel="noreferrer">Abrir</a>
+                  <td class="px-4 py-3 text-slate-600">{{ formatSalary(job) }}</td>
+                  <td class="px-4 py-3 text-slate-600">{{ formatDate(job.published_at) }}</td>
+                  <td class="px-4 py-3">
+                    <a
+                      :href="job.url"
+                      target="_blank"
+                      rel="noreferrer"
+                      class="inline-flex items-center gap-2 rounded-full bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 transition hover:bg-blue-100"
+                    >
+                      Abrir
+                      <i class="pi pi-arrow-up-right text-xs" aria-hidden="true" />
+                    </a>
                   </td>
                 </tr>
               </tbody>
             </table>
           </div>
 
-          <footer v-if="!loading" class="table-footer">
-            <span>{{ filteredJobs.length }} resultados</span>
-            <div class="pagination">
-              <button class="pagination-button" type="button" :disabled="currentPage === 1" @click="currentPage -= 1">
-                Anterior
-              </button>
-              <span>Página {{ currentPage }} de {{ totalPages }}</span>
-              <button class="pagination-button" type="button" :disabled="currentPage === totalPages" @click="currentPage += 1">
-                Siguiente
-              </button>
+          <footer class="mt-4 flex flex-col gap-3 border-t border-slate-200 pt-4 sm:flex-row sm:items-center sm:justify-between">
+            <span class="text-sm text-slate-600">{{ filteredJobs.length }} resultados</span>
+            <div class="flex flex-wrap items-center gap-2">
+              <Button label="Anterior" severity="secondary" :disabled="currentPage === 1" @click="currentPage -= 1" />
+              <span class="rounded-full bg-slate-100 px-3 py-2 text-sm font-medium text-slate-700">
+                Página {{ currentPage }} de {{ totalPages }}
+              </span>
+              <Button label="Siguiente" severity="secondary" :disabled="currentPage === totalPages" @click="currentPage += 1" />
             </div>
           </footer>
-        </article>
-      </section>
-      </div>
+        </template>
+      </Card>
     </main>
   </div>
 </template>
-
-<style scoped>
-:global(body) {
-  background: #1a1a1a;
-}
-
-.dashboard-shell {
-  min-height: 100vh;
-  background: transparent;
-}
-
-.topbar {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-  padding: 20px 28px;
-  backdrop-filter: blur(18px);
-  background: rgba(26, 26, 26, 0.84);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.brand-block {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.brand-icon {
-  display: grid;
-  place-items: center;
-  width: 52px;
-  height: 52px;
-  border-radius: 14px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.25), rgba(34, 211, 238, 0.16));
-  color: #eef2ff;
-  font-size: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.brand-kicker,
-.section-kicker {
-  margin: 0 0 6px;
-  color: #9ca3af;
-  font-size: 0.76rem;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.brand-block h1,
-.panel-heading h3 {
-  margin: 0;
-  color: #f9fafb;
-}
-
-.brand-subtitle {
-  max-width: 680px;
-  margin: 6px 0 0;
-  color: #cbd5e1;
-  line-height: 1.5;
-}
-
-.topbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-}
-
-.status-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border-radius: 999px;
-  color: #cbd5e1;
-  background: rgba(38, 38, 38, 0.9);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.status-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 999px;
-  background: #22c55e;
-  box-shadow: 0 0 12px rgba(34, 197, 94, 0.7);
-}
-
-.action-button {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 12px 18px;
-  border: 0;
-  border-radius: 10px;
-  background: linear-gradient(135deg, #6366f1, #4f46e5);
-  color: #ffffff;
-  font-weight: 700;
-  cursor: pointer;
-  box-shadow: 0 12px 24px rgba(79, 70, 229, 0.25);
-}
-
-.action-button:disabled {
-  cursor: wait;
-  opacity: 0.75;
-}
-
-.button-spinner {
-  width: 15px;
-  height: 15px;
-  border-radius: 999px;
-  border: 2px solid rgba(255, 255, 255, 0.35);
-  border-top-color: #ffffff;
-  animation: spin 0.9s linear infinite;
-}
-
-.dashboard-main {
-  padding: 28px 0 36px;
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-}
-
-.dashboard-container {
-  width: min(100%, 1480px);
-  margin: 0 auto;
-  padding: 0 28px;
-}
-
-.dashboard-container--topbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 24px;
-}
-
-.dashboard-container--content {
-  display: flex;
-  flex-direction: column;
-  gap: 28px;
-}
-
-.kpi-grid,
-.chart-grid {
-  display: grid;
-  gap: 24px;
-}
-
-.kpi-grid {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-}
-
-.chart-grid--primary,
-.chart-grid--secondary,
-.chart-grid--tables {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-}
-
-.panel {
-  padding: 22px;
-  border-radius: 8px;
-  background: #262626;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.16);
-}
-
-.kpi-card {
-  display: flex;
-  align-items: flex-start;
-  gap: 16px;
-}
-
-.kpi-icon {
-  --kpi-color: #6366f1;
-  display: grid;
-  place-items: center;
-  width: 54px;
-  height: 54px;
-  border-radius: 14px;
-  color: var(--kpi-color);
-  background: color-mix(in srgb, var(--kpi-color) 16%, transparent);
-  font-size: 1.2rem;
-}
-
-.kpi-copy p,
-.kpi-copy span,
-.panel-chip,
-.table-footer,
-.search-field input,
-.filter-select,
-.data-table,
-.pie-card h4,
-.badge,
-.forecast-badge {
-  color: #cbd5e1;
-}
-
-.kpi-copy p {
-  margin: 0;
-  font-size: 0.86rem;
-}
-
-.kpi-copy h2 {
-  margin: 6px 0 4px;
-  font-size: 2rem;
-  line-height: 1;
-  color: #ffffff;
-}
-
-.kpi-copy span {
-  font-size: 0.88rem;
-}
-
-.chart-panel {
-  min-height: 420px;
-}
-
-.chart-panel--wide {
-  min-height: 470px;
-}
-
-.panel-heading {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.panel-heading--stacked {
-  align-items: flex-start;
-  flex-direction: column;
-}
-
-.panel-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(99, 102, 241, 0.12);
-  border: 1px solid rgba(99, 102, 241, 0.24);
-  font-size: 0.78rem;
-  font-weight: 600;
-}
-
-.chart-frame {
-  position: relative;
-  height: 320px;
-}
-
-.chart-frame--short {
-  height: 320px;
-}
-
-.chart-frame--forecast {
-  height: 360px;
-}
-
-.chart-frame--pie {
-  height: 240px;
-}
-
-.pie-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 16px;
-}
-
-.pie-card {
-  padding: 14px;
-  border-radius: 14px;
-  background: rgba(15, 15, 15, 0.32);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-}
-
-.pie-card h4 {
-  margin: 0 0 12px;
-  font-size: 0.95rem;
-}
-
-.forecast-badges {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-}
-
-.forecast-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: rgba(15, 15, 15, 0.42);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: 0.84rem;
-}
-
-.forecast-badge strong {
-  color: #f9fafb;
-}
-
-.table-panel {
-  display: flex;
-  flex-direction: column;
-  min-height: 410px;
-}
-
-.table-panel--jobs {
-  min-height: 460px;
-}
-
-.filter-row {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) 180px 180px;
-  gap: 12px;
-  width: 100%;
-}
-
-.search-field,
-.filter-select {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 46px;
-  padding: 0 14px;
-  border-radius: 10px;
-  background: #1f1f1f;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.search-field input,
-.filter-select {
-  width: 100%;
-  border: 0;
-  outline: 0;
-  background: transparent;
-}
-
-.search-field input::placeholder {
-  color: #6b7280;
-}
-
-.table-wrap {
-  overflow: auto;
-}
-
-.table-wrap--jobs {
-  flex: 1;
-}
-
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.94rem;
-}
-
-.data-table thead th {
-  text-align: left;
-  padding: 14px 10px;
-  color: #f3f4f6;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.data-table tbody td {
-  padding: 14px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.data-table tbody tr:hover {
-  background: rgba(255, 255, 255, 0.02);
-}
-
-.data-table--jobs td:first-child {
-  min-width: 220px;
-}
-
-.job-link {
-  color: #93c5fd;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.table-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-top: 16px;
-}
-
-.pagination {
-  display: inline-flex;
-  align-items: center;
-  gap: 12px;
-}
-
-.pagination-button {
-  min-width: 104px;
-  min-height: 42px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 10px;
-  background: #1f1f1f;
-  color: #f3f4f6;
-  cursor: pointer;
-}
-
-.pagination-button:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.badge {
-  display: inline-flex;
-  align-items: center;
-  padding: 6px 10px;
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
-.badge--blue {
-  color: #bfdbfe;
-  background: rgba(99, 102, 241, 0.16);
-}
-
-.badge--green,
-.badge--success {
-  color: #bbf7d0;
-  background: rgba(16, 185, 129, 0.15);
-}
-
-.badge--gray {
-  color: #d1d5db;
-  background: rgba(148, 163, 184, 0.18);
-}
-
-.badge--warning {
-  color: #fde68a;
-  background: rgba(251, 191, 36, 0.15);
-}
-
-.badge--danger {
-  color: #fecaca;
-  background: rgba(239, 68, 68, 0.15);
-}
-
-.loading-chart,
-.loading-table {
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  min-height: 320px;
-}
-
-.loading-chart--large {
-  min-height: 360px;
-}
-
-.loading-chart--compact {
-  min-height: 240px;
-}
-
-.loading-table--jobs {
-  min-height: 320px;
-}
-
-.loading-line,
-.loading-row {
-  border-radius: 12px;
-  background: linear-gradient(90deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.06));
-  background-size: 200% 100%;
-  animation: pulse 1.5s ease-in-out infinite;
-}
-
-.loading-line--title {
-  width: 40%;
-  height: 18px;
-}
-
-.loading-line--chart {
-  flex: 1;
-  min-height: 260px;
-}
-
-.loading-row {
-  height: 52px;
-}
-
-.loading-row--job {
-  height: 58px;
-}
-
-@keyframes pulse {
-  0% {
-    background-position: 200% 0;
-  }
-
-  100% {
-    background-position: -200% 0;
-  }
-}
-
-@keyframes spin {
-  from {
-    transform: rotate(0deg);
-  }
-
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (max-width: 1200px) {
-  .kpi-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .chart-grid--primary,
-  .chart-grid--secondary,
-  .chart-grid--tables {
-    grid-template-columns: 1fr;
-  }
-
-  .pie-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .filter-row {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 768px) {
-  .topbar {
-    position: static;
-    padding: 18px 0;
-  }
-
-  .dashboard-container {
-    padding: 0 16px;
-  }
-
-  .dashboard-container--topbar,
-  .topbar-actions,
-  .brand-block {
-    width: 100%;
-    flex-direction: column;
-    align-items: flex-start;
-  }
-
-  .dashboard-main {
-    padding: 16px 0 24px;
-  }
-
-  .kpi-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .panel {
-    padding: 18px;
-  }
-
-  .table-footer,
-  .pagination {
-    width: 100%;
-    flex-direction: column;
-    align-items: flex-start;
-  }
-}
-</style>

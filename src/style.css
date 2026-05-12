@@ -2,10 +2,17 @@
 @import "tailwindcss";
 
 :root {
-	color-scheme: dark;
-	font-family: Geist, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-	background: #1a1a1a;
-	color: #f3f4f6;
+	color-scheme: light;
+	font-family: Geist, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+	background: #f8fafc;
+	color: #0f172a;
+	--app-bg: #f8fafc;
+	--app-surface: rgba(255, 255, 255, 0.9);
+	--app-surface-solid: #ffffff;
+	--app-border: rgba(148, 163, 184, 0.22);
+	--app-text: #0f172a;
+	--app-text-muted: #64748b;
+	--app-primary: #3b82f6;
 }
 
 * {
@@ -21,10 +28,14 @@ body,
 
 body {
 	background:
-		radial-gradient(circle at top left, rgba(99, 102, 241, 0.18), transparent 32%),
-		radial-gradient(circle at top right, rgba(34, 211, 238, 0.12), transparent 28%),
-		#1a1a1a;
-	color: #f3f4f6;
+		radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 28%),
+		radial-gradient(circle at top right, rgba(14, 165, 233, 0.1), transparent 24%),
+		linear-gradient(180deg, #f8fafc 0%, #ffffff 100%);
+	color: #0f172a;
+}
+
+#app {
+	background: var(--app-bg);
 }
 
 button,
@@ -34,23 +45,50 @@ textarea {
 	font: inherit;
 }
 
-a {
-    color: inherit;
+.p-inputtext,
+.p-select,
+.p-button,
+.p-tag {
+	border-color: var(--app-border);
 }
 
-.kpi-copy h2,
-.status-pill,
-.badge,
-.panel-chip,
-.data-table td,
-.data-table th,
-.pagination,
-.filter-select,
-.search-field input {
-    font-family: 'Geist Mono', ui-monospace, SFMono-Regular, Consolas, monospace;
-    font-variant-numeric: tabular-nums;
+.p-inputtext,
+.p-select {
+	background: var(--app-surface-solid);
+	color: var(--app-text);
+	box-shadow: none;
+}
+
+.p-inputtext::placeholder {
+	color: var(--app-text-muted);
+}
+
+.p-button {
+	background: var(--app-primary);
+	border-color: var(--app-primary);
+}
+
+.p-button.p-button-secondary {
+	background: #ffffff;
+	border-color: rgba(148, 163, 184, 0.3);
+	color: #334155;
+}
+
+.p-tag {
+	background: rgba(255, 255, 255, 0.92);
+	color: #0f172a;
+}
+
+.p-select-panel,
+.p-inputtext:focus,
+.p-select:focus {
+	box-shadow: 0 0 0 0.2rem rgba(59, 130, 246, 0.18);
+}
+
+a {
+	color: inherit;
 }
 
 ::selection {
-    background: rgba(99, 102, 241, 0.3);
+	background: rgba(37, 99, 235, 0.2);
 }
