@@ -2,15 +2,45 @@ export type RemoteType = 'remoto' | 'híbrido' | 'presencial'
 export type ConfidenceLevel = 'high' | 'medium' | 'low' | 'insufficient-data'
 
 export interface JobItem {
+  id: number
+  source: string
   title: string
   company: string
   city: string
+  location_text: string
   remote_type: RemoteType
+  work_mode: string
   salary_min: number | null
   salary_max: number | null
   currency: string
-  published_at: string
+  description: string
+  category: string
+  seniority: string
+  skills: string[]
   url: string
+  published_at: string
+  scraped_at: string
+}
+
+export interface RawJobItem {
+  id?: number
+  source?: string
+  title?: string
+  company?: string
+  city?: string
+  location_text?: string
+  remote_type?: string
+  work_mode?: string
+  salary_min?: number | null
+  salary_max?: number | null
+  currency?: string
+  description?: string
+  category?: string
+  seniority?: string
+  skills?: string[]
+  url?: string
+  published_at?: string
+  scraped_at?: string
 }
 
 export interface OverviewData {
@@ -20,18 +50,23 @@ export interface OverviewData {
   remote_type_distribution: Array<{ label?: string; remote_type?: string; count: number }>
   seniority_distribution: Array<{ label?: string; seniority?: string; count: number }>
   monthly_trend: Array<{ month: string; count: number }>
+  soft_skills?: Array<{ skill: string; count: number }>
+  english_requirement?: Array<{ label: string; count: number }>
 }
 
 export interface ForecastSkill {
   skill: string
   history: Array<{ month: string; count: number }>
   forecast: Array<{ month: string; count: number }>
+  total_observed?: number
   growth_pct: number
   projected_total: number
 }
 
 export interface ConfidenceRow {
   skill: string
+  train_points?: number
+  test_points?: number
   mae: number
   mape_pct: number
   confidence_level: ConfidenceLevel
@@ -40,6 +75,8 @@ export interface ConfidenceRow {
 export interface DashboardData {
   overview: OverviewData
   topSkills: Array<{ skill: string; count: number }>
+  softSkills: Array<{ skill: string; count: number }>
+  englishRequirement: Array<{ label: string; count: number }>
   forecastSkills: ForecastSkill[]
   confidenceRows: ConfidenceRow[]
   jobs: JobItem[]
@@ -58,7 +95,7 @@ export interface SelectOption {
   value: string
 }
 
-export const dashboardApiBase = 'http://localhost:8080'
+export const dashboardApiBase = import.meta.env.VITE_API_BASE || 'http://localhost:9000'
 export const jobsPerPage = 6
 export const forecastStartIndex = 5
 
@@ -102,11 +139,56 @@ export function normalizeRemoteType(value: unknown): RemoteType {
     return 'remoto'
   }
 
-  if (normalized === 'hybrid' || normalized === 'híbrido' || normalized === 'hibrido') {
+  if (
+    normalized === 'hybrid' ||
+    normalized === 'híbrido' ||
+    normalized === 'hibrido' ||
+    normalized === 'mixed' ||
+    normalized === 'híbrida' ||
+    normalized === 'hibrida'
+  ) {
     return 'híbrido'
   }
 
   return 'presencial'
+}
+
+function normalizeText(value: unknown) {
+  return String(value ?? '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+}
+
+function inferSeniorityFromText(...values: unknown[]) {
+  const text = values.map((value) => normalizeText(value)).join(' ')
+
+  if (!text.trim()) {
+    return ''
+  }
+
+  if (
+    /\b(junior|jr|trainee|intern|aprendiz|becario|practicante|entry level|entry-level|first job|primer empleo)\b/.test(text) ||
+    /\b(0\s*[-–]?\s*1\s*ano|menos de\s*1\s*ano|menos de\s*un\s*ano)\b/.test(text)
+  ) {
+    return 'Junior'
+  }
+
+  if (
+    /\b(mid|semi senior|semisenior|semi-senior|intermedio|middle)\b/.test(text) ||
+    /\b(2\s*[-–]?\s*4\s*anos?|2\s*[-–]?\s*4\s*años?|2\s*[-–]?\s*4\s*year)\b/.test(text)
+  ) {
+    return 'Mid'
+  }
+
+  if (
+    /\b(senior|sr\.?|lead|principal|staff|arquitecto|architect)\b/.test(text) ||
+    /\b(5\+\s*a?ños?|mas de\s*5\s*a?ños?|more than\s*5\s*years)\b/.test(text)
+  ) {
+    return 'Senior'
+  }
+
+  return ''
 }
 
 export function formatCompactNumber(value: number) {
@@ -132,175 +214,292 @@ export function formatDate(value: string) {
   }).format(new Date(value))
 }
 
-export function formatSalary(job: JobItem) {
-  if (job.salary_min && job.salary_max) {
-    return `${formatCurrency(job.salary_min)} - ${formatCurrency(job.salary_max)}`
+export function formatSalaryRange(salaryMin: number | null, salaryMax: number | null, currency = 'COP') {
+  const formatValue = (value: number) => new Intl.NumberFormat('es-CO', {
+    style: 'currency',
+    currency,
+    maximumFractionDigits: 0
+  }).format(value)
+
+  if (salaryMin != null && salaryMin > 0 && salaryMax != null && salaryMax > 0) {
+    return `${formatValue(salaryMin)} - ${formatValue(salaryMax)}`
   }
 
-  if (job.salary_min) {
-    return formatCurrency(job.salary_min)
+  if (salaryMin != null && salaryMin > 0) {
+    return formatValue(salaryMin)
   }
 
-  if (job.salary_max) {
-    return formatCurrency(job.salary_max)
+  if (salaryMax != null && salaryMax > 0) {
+    return formatValue(salaryMax)
   }
 
   return 'Salario no publicado'
 }
 
-export function normalizeJobs(items: any[]): JobItem[] {
-  return items.slice(0, 50).map((item) => ({
+export function formatSalary(job: JobItem) {
+  return formatSalaryRange(job.salary_min, job.salary_max, job.currency)
+}
+
+export function normalizeJob(item: RawJobItem): JobItem {
+  const inferredSeniority = inferSeniorityFromText(item.seniority, item.title, item.category, item.description, item.skills?.join(' '))
+
+  return {
+    id: item.id ?? 0,
+    source: item.source ?? 'Sin fuente',
     title: item.title ?? 'Sin título',
     company: item.company ?? 'Empresa no disponible',
-    city: item.city ?? 'Bogotá',
-    remote_type: normalizeRemoteType(item.remote_type),
+    city: item.city ?? 'Sin ciudad',
+    location_text: item.location_text ?? '',
+    remote_type: normalizeRemoteType(item.remote_type ?? item.work_mode),
+    work_mode: String(item.work_mode ?? item.remote_type ?? 'presencial'),
     salary_min: item.salary_min ?? null,
     salary_max: item.salary_max ?? null,
     currency: item.currency ?? 'COP',
+    description: item.description ?? '',
+    category: item.category ?? '',
+    seniority: inferredSeniority || String(item.seniority ?? '').trim(),
+    skills: Array.isArray(item.skills) ? item.skills.filter((skill): skill is string => typeof skill === 'string' && skill.trim().length > 0) : [],
+    url: item.url ?? '#',
     published_at: item.published_at ?? new Date().toISOString(),
-    url: item.url ?? '#'
+    scraped_at: item.scraped_at ?? item.published_at ?? new Date().toISOString()
+  }
+}
+
+export function normalizeJobs(items: RawJobItem[]): JobItem[] {
+  return items.map(normalizeJob)
+}
+
+function countBy<T>(items: T[], selector: (item: T) => string) {
+  const counts = new Map<string, number>()
+
+  for (const item of items) {
+    const key = selector(item).trim()
+    if (!key) {
+      continue
+    }
+
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+
+  return counts
+}
+
+function topEntries(counts: Map<string, number>, limit: number) {
+  const entries = Array.from(counts.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], 'es'))
+    .slice(0, limit)
+    .map(([label, count]) => ({ label, count }))
+
+  return entries.length > 0 ? entries : []
+}
+
+function monthKeyFromDate(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.valueOf())) {
+    return ''
+  }
+
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
+}
+
+function formatMonthLabel(monthKey: string) {
+  const [yearPart, monthPart] = monthKey.split('-')
+  const year = Number(yearPart)
+  const month = Number(monthPart)
+
+  if (!Number.isFinite(year) || !Number.isFinite(month)) {
+    return 'Sin datos'
+  }
+
+  return new Intl.DateTimeFormat('es-CO', { month: 'short', year: '2-digit' }).format(new Date(Date.UTC(year, month - 1, 1)))
+}
+
+export function buildOverviewFromJobs(jobs: JobItem[]): OverviewData {
+  const sourceCounts = countBy(jobs, (job) => job.source)
+  const cityCounts = countBy(jobs, (job) => job.city)
+  const remoteCounts = countBy(jobs, (job) => job.remote_type)
+  const seniorityCounts = countBy(jobs, (job) => mapSeniorityLabel(job.seniority))
+  const monthCounts = countBy(jobs, (job) => monthKeyFromDate(job.published_at))
+
+  return {
+    total_jobs: jobs.length,
+    top_sources: topEntries(sourceCounts, 5),
+    top_cities: topEntries(cityCounts, 5),
+    remote_type_distribution: topEntries(remoteCounts, 3),
+    seniority_distribution: topEntries(seniorityCounts, 4),
+    monthly_trend: Array.from(monthCounts.entries())
+      .sort(([leftKey], [rightKey]) => leftKey.localeCompare(rightKey))
+      .slice(-8)
+      .map(([monthKey, count]) => ({ month: formatMonthLabel(monthKey), count }))
+  }
+}
+
+function normalizeForecastSkills(skills: any[], fallbackData: ForecastSkill[]) {
+  if (!Array.isArray(skills) || skills.length === 0) {
+    return fallbackData
+  }
+
+  return skills.map((skill) => {
+    const history = Array.isArray(skill.history) ? skill.history.map((point: { month?: string; count?: number }) => ({ month: point.month ?? '', count: Number(point.count ?? 0) })) : []
+    const forecast = Array.isArray(skill.forecast) ? skill.forecast.map((point: { month?: string; count?: number }) => ({ month: point.month ?? '', count: Number(point.count ?? 0) })) : []
+    const totalObserved = Number(skill.total_observed ?? history.reduce((sum: number, point: { count: number }) => sum + point.count, 0))
+    const projectedTotal = Number(skill.projected_total ?? totalObserved + forecast.reduce((sum: number, point: { count: number }) => sum + point.count, 0))
+
+    return {
+      skill: skill.skill ?? 'Skill',
+      history,
+      forecast,
+      total_observed: Number.isFinite(totalObserved) ? totalObserved : 0,
+      projected_total: Number.isFinite(projectedTotal) ? projectedTotal : 0,
+      growth_pct: Number(skill.growth_pct ?? 0)
+    }
+  })
+}
+
+function normalizeConfidenceLevel(value: unknown): ConfidenceLevel {
+  const normalized = String(value ?? '').toLowerCase()
+
+  if (normalized === 'high' || normalized === 'alta') {
+    return 'high'
+  }
+
+  if (normalized === 'medium' || normalized === 'media') {
+    return 'medium'
+  }
+
+  if (normalized === 'low' || normalized === 'baja') {
+    return 'low'
+  }
+
+  return 'insufficient-data'
+}
+
+function normalizeConfidenceRows(skills: any[], fallbackData: ConfidenceRow[]) {
+  if (!Array.isArray(skills) || skills.length === 0) {
+    return fallbackData
+  }
+
+  return skills.map((skill) => ({
+    skill: skill.skill ?? 'Skill',
+    train_points: Number(skill.train_points ?? 0),
+    test_points: Number(skill.test_points ?? 0),
+    mae: Number(skill.mae ?? 0),
+    mape_pct: Number(skill.mape_pct ?? 0),
+    confidence_level: normalizeConfidenceLevel(skill.confidence_level)
   }))
 }
 
+function mapSeniorityLabel(value: string) {
+  const normalized = normalizeText(value)
+
+  if (normalized === 'junior') {
+    return 'Junior'
+  }
+
+  if (normalized === 'mid') {
+    return 'Mid'
+  }
+
+  if (normalized === 'senior') {
+    return 'Senior'
+  }
+
+  return value.trim()
+}
+
 export function transformLiveData(overview: any, forecast: any, confidence: any, jobsPayload: any, fallbackData: DashboardData): DashboardData {
-  const jobs = Array.isArray(jobsPayload?.items) ? jobsPayload.items : Array.isArray(jobsPayload) ? jobsPayload : []
+  const rawJobs = Array.isArray(jobsPayload?.items) ? jobsPayload.items : Array.isArray(jobsPayload) ? jobsPayload : []
+  const jobs = normalizeJobs(rawJobs)
+  const derivedOverview = buildOverviewFromJobs(jobs)
+
+  // Process soft skills - handle both object and array formats
+  const softSkillsArray = overview?.soft_skills && typeof overview.soft_skills === 'object'
+    ? Array.isArray(overview.soft_skills)
+      ? overview.soft_skills.map((item: { skill?: string; label?: string; count: number }) => ({
+          skill: item.skill ?? item.label ?? 'Skill',
+          count: Number(item.count)
+        }))
+      : Object.entries(overview.soft_skills).map(([skill, count]) => ({
+          skill,
+          count: Number(count)
+        }))
+    : []
+  
+  // Process English requirement - handle both object and array formats
+  const englishReqArray = overview?.english_requirement_distribution && typeof overview.english_requirement_distribution === 'object'
+    ? Array.isArray(overview.english_requirement_distribution)
+      ? overview.english_requirement_distribution.map((item: { label?: string; count: number }) => ({
+          label: item.label ?? 'Unknown',
+          count: Number(item.count)
+        }))
+      : Object.entries(overview.english_requirement_distribution).map(([label, count]) => ({
+          label: label === 'required' ? 'Requerido' : label === 'unknown' ? 'No especificado' : label,
+          count: Number(count)
+        }))
+    : []
 
   return {
     overview: {
-      total_jobs: overview?.total_jobs ?? jobs.length,
-      top_sources: Array.isArray(overview?.top_sources) ? overview.top_sources : fallbackData.overview.top_sources,
-      top_cities: Array.isArray(overview?.top_cities) && overview.top_cities.length > 0 ? overview.top_cities : fallbackData.overview.top_cities,
-      remote_type_distribution: Array.isArray(overview?.remote_type_distribution) && overview.remote_type_distribution.length > 0 ? overview.remote_type_distribution : fallbackData.overview.remote_type_distribution,
-      seniority_distribution: Array.isArray(overview?.seniority_distribution) && overview.seniority_distribution.length > 0 ? overview.seniority_distribution : fallbackData.overview.seniority_distribution,
-      monthly_trend: Array.isArray(overview?.monthly_trend) && overview.monthly_trend.length > 0 ? overview.monthly_trend : fallbackData.overview.monthly_trend
+      total_jobs: Number(overview?.total_jobs ?? derivedOverview.total_jobs),
+      top_sources: Array.isArray(overview?.top_sources) && overview.top_sources.length > 0 ? overview.top_sources : derivedOverview.top_sources,
+      top_cities: Array.isArray(overview?.top_cities) && overview.top_cities.length > 0 ? overview.top_cities : derivedOverview.top_cities,
+      remote_type_distribution: Array.isArray(overview?.remote_type_distribution) && overview.remote_type_distribution.length > 0 ? overview.remote_type_distribution : derivedOverview.remote_type_distribution,
+      seniority_distribution: Array.isArray(overview?.seniority_distribution) && overview.seniority_distribution.length > 0 ? overview.seniority_distribution : derivedOverview.seniority_distribution,
+      monthly_trend: Array.isArray(overview?.monthly_trend) && overview.monthly_trend.length > 0 ? overview.monthly_trend : derivedOverview.monthly_trend,
+      soft_skills: softSkillsArray,
+      english_requirement: englishReqArray
     },
-    topSkills: Array.isArray(overview?.top_skills) && overview.top_skills.length > 0
-      ? overview.top_skills.map((item: { skill?: string; label?: string; count: number }) => ({
-          skill: item.skill ?? item.label ?? 'Skill',
-          count: item.count
-        }))
-      : fallbackData.topSkills,
-    forecastSkills: Array.isArray(forecast?.skills) && forecast.skills.length > 0 ? forecast.skills : fallbackData.forecastSkills,
-    confidenceRows: Array.isArray(confidence?.skills) && confidence.skills.length > 0 ? confidence.skills : fallbackData.confidenceRows,
-    jobs: Array.isArray(jobs) && jobs.length > 0 ? normalizeJobs(jobs) : fallbackData.jobs
+    topSkills: overview?.top_skills && typeof overview.top_skills === 'object'
+      ? Array.isArray(overview.top_skills)
+        ? overview.top_skills.map((item: { skill?: string; label?: string; count: number }) => ({
+            skill: item.skill ?? item.label ?? 'Skill',
+            count: Number(item.count)
+          }))
+        : Object.entries(overview.top_skills).map(([skill, count]) => ({
+            skill,
+            count: Number(count)
+          }))
+      : jobs.reduce<Array<{ skill: string; count: number }>>((accumulator, job) => {
+          for (const skill of job.skills) {
+            const existingSkill = accumulator.find((entry) => entry.skill === skill)
+            if (existingSkill) {
+              existingSkill.count += 1
+            }
+            else {
+              accumulator.push({ skill, count: 1 })
+            }
+          }
+          return accumulator
+        }, []).sort((left: { skill: string; count: number }, right: { skill: string; count: number }) => right.count - left.count).slice(0, 8),
+    softSkills: softSkillsArray.sort((left: { skill: string; count: number }, right: { skill: string; count: number }) => right.count - left.count).slice(0, 8),
+    englishRequirement: englishReqArray,
+    forecastSkills: normalizeForecastSkills(forecast?.skills, fallbackData.forecastSkills),
+    confidenceRows: normalizeConfidenceRows(confidence?.skills, fallbackData.confidenceRows),
+    jobs: jobs.length > 0 ? jobs : fallbackData.jobs
+  }
+}
+
+export function createInitialDashboard(): DashboardData {
+  return {
+    overview: {
+      total_jobs: 0,
+      top_sources: [],
+      top_cities: [],
+      remote_type_distribution: [],
+      seniority_distribution: [],
+      monthly_trend: [],
+      soft_skills: [],
+      english_requirement: []
+    },
+    topSkills: [],
+    softSkills: [],
+    englishRequirement: [],
+    forecastSkills: [],
+    confidenceRows: [],
+    jobs: []
   }
 }
 
 export function createFallbackDashboard(): DashboardData {
-  const jobs: JobItem[] = [
-    { title: 'Senior Python Engineer', company: 'Nuva', city: 'Bogotá', remote_type: 'remoto', salary_min: 9000000, salary_max: 12000000, currency: 'COP', published_at: '2026-05-08T10:00:00Z', url: '#' },
-    { title: 'Data Analyst', company: 'Rappi', city: 'Medellín', remote_type: 'híbrido', salary_min: 5500000, salary_max: 7800000, currency: 'COP', published_at: '2026-05-07T10:00:00Z', url: '#' },
-    { title: 'Frontend Developer React', company: 'Alegra', city: 'Bogotá', remote_type: 'remoto', salary_min: 7000000, salary_max: 9500000, currency: 'COP', published_at: '2026-05-06T10:00:00Z', url: '#' },
-    { title: 'DevOps Engineer', company: 'Addi', city: 'Cali', remote_type: 'híbrido', salary_min: 8500000, salary_max: 11000000, currency: 'COP', published_at: '2026-05-05T10:00:00Z', url: '#' },
-    { title: 'ML Engineer', company: 'Habi', city: 'Bogotá', remote_type: 'remoto', salary_min: 10000000, salary_max: 14000000, currency: 'COP', published_at: '2026-05-04T10:00:00Z', url: '#' },
-    { title: 'Backend Node.js Developer', company: 'Bold', city: 'Barranquilla', remote_type: 'presencial', salary_min: 6800000, salary_max: 9200000, currency: 'COP', published_at: '2026-05-03T10:00:00Z', url: '#' },
-    { title: 'BI Specialist', company: 'Siesa', city: 'Bogotá', remote_type: 'híbrido', salary_min: 6200000, salary_max: 8300000, currency: 'COP', published_at: '2026-05-02T10:00:00Z', url: '#' },
-    { title: 'Product Data Scientist', company: 'Mercado Libre', city: 'Medellín', remote_type: 'remoto', salary_min: 11000000, salary_max: 15000000, currency: 'COP', published_at: '2026-05-01T10:00:00Z', url: '#' }
-  ]
-
-  return {
-    overview: {
-      total_jobs: 1248,
-      top_sources: [
-        { label: 'Computrabajo', count: 628 },
-        { label: 'Magneto', count: 420 },
-        { label: 'LinkedIn', count: 200 }
-      ],
-      top_cities: [
-        { label: 'Bogotá', count: 560 },
-        { label: 'Medellín', count: 260 },
-        { label: 'Cali', count: 140 },
-        { label: 'Barranquilla', count: 110 }
-      ],
-      remote_type_distribution: [
-        { label: 'Remoto', count: 41 },
-        { label: 'Híbrido', count: 34 },
-        { label: 'Presencial', count: 25 }
-      ],
-      seniority_distribution: [
-        { label: 'Junior', count: 18 },
-        { label: 'Mid', count: 47 },
-        { label: 'Senior', count: 35 }
-      ],
-      monthly_trend: [
-        { month: 'Ene', count: 120 },
-        { month: 'Feb', count: 165 },
-        { month: 'Mar', count: 182 },
-        { month: 'Abr', count: 205 },
-        { month: 'May', count: 232 },
-        { month: 'Jun', count: 268 },
-        { month: 'Jul', count: 291 },
-        { month: 'Ago', count: 318 }
-      ]
-    },
-    topSkills: [
-      { skill: 'Python', count: 184 },
-      { skill: 'SQL', count: 168 },
-      { skill: 'Docker', count: 143 },
-      { skill: 'React', count: 129 },
-      { skill: 'AWS', count: 118 },
-      { skill: 'TypeScript', count: 102 },
-      { skill: 'Kafka', count: 88 },
-      { skill: 'Node.js', count: 81 }
-    ],
-    forecastSkills: [
-      {
-        skill: 'Python',
-        history: [
-          { month: 'Ene', count: 42 },
-          { month: 'Feb', count: 48 },
-          { month: 'Mar', count: 51 },
-          { month: 'Abr', count: 56 },
-          { month: 'May', count: 60 }
-        ],
-        forecast: [
-          { month: 'Jun', count: 64 },
-          { month: 'Jul', count: 70 },
-          { month: 'Ago', count: 76 }
-        ],
-        growth_pct: 27,
-        projected_total: 270
-      },
-      {
-        skill: 'SQL',
-        history: [
-          { month: 'Ene', count: 39 },
-          { month: 'Feb', count: 42 },
-          { month: 'Mar', count: 45 },
-          { month: 'Abr', count: 49 },
-          { month: 'May', count: 53 }
-        ],
-        forecast: [
-          { month: 'Jun', count: 56 },
-          { month: 'Jul', count: 59 },
-          { month: 'Ago', count: 63 }
-        ],
-        growth_pct: 19,
-        projected_total: 226
-      },
-      {
-        skill: 'Docker',
-        history: [
-          { month: 'Ene', count: 30 },
-          { month: 'Feb', count: 34 },
-          { month: 'Mar', count: 38 },
-          { month: 'Abr', count: 41 },
-          { month: 'May', count: 46 }
-        ],
-        forecast: [
-          { month: 'Jun', count: 48 },
-          { month: 'Jul', count: 50 },
-          { month: 'Ago', count: 54 }
-        ],
-        growth_pct: 17,
-        projected_total: 191
-      }
-    ],
-    confidenceRows: [
-      { skill: 'Python', mae: 4.1, mape_pct: 11.2, confidence_level: 'high' },
-      { skill: 'SQL', mae: 5.3, mape_pct: 13.4, confidence_level: 'medium' },
-      { skill: 'Docker', mae: 6.8, mape_pct: 18.2, confidence_level: 'low' }
-    ],
-    jobs
-  }
+  return createInitialDashboard()
 }

@@ -7,10 +7,12 @@ Chart.register(...registerables)
 export function useDashboardCharts(dashboard: Ref<DashboardData>, loading: Ref<boolean>) {
   const trendCanvas = ref<HTMLCanvasElement | null>(null)
   const skillsCanvas = ref<HTMLCanvasElement | null>(null)
+  const softSkillsCanvas = ref<HTMLCanvasElement | null>(null)
   const forecastCanvas = ref<HTMLCanvasElement | null>(null)
   const citiesCanvas = ref<HTMLCanvasElement | null>(null)
   const modalityCanvas = ref<HTMLCanvasElement | null>(null)
   const seniorityCanvas = ref<HTMLCanvasElement | null>(null)
+  const englishCanvas = ref<HTMLCanvasElement | null>(null)
   const chartInstances: Chart[] = []
 
   watch([dashboard, loading], async ([, isLoading]) => {
@@ -143,6 +145,42 @@ export function useDashboardCharts(dashboard: Ref<DashboardData>, loading: Ref<b
 
     if (modalityCanvas.value) {
       chartInstances.push(createChart(modalityCanvas.value, createDoughnutChart(dashboard.value.overview.remote_type_distribution, 'Modalidad')))
+    }
+
+    if (softSkillsCanvas.value) {
+      const topSoftSkills = dashboard.value.softSkills.slice(0, 8)
+
+      chartInstances.push(createChart(softSkillsCanvas.value, {
+        type: 'bar',
+        data: {
+          labels: topSoftSkills.map((item) => item.skill),
+          datasets: [
+            {
+              label: 'Menciones',
+              data: topSoftSkills.map((item) => item.count),
+              borderRadius: 10,
+              backgroundColor: palette.teal,
+              hoverBackgroundColor: '#0891b2',
+              barThickness: 16
+            }
+          ]
+        },
+        options: {
+          ...commonChartOptions(),
+          indexAxis: 'y',
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: scaleOptions(true),
+            y: scaleOptions(false)
+          }
+        }
+      } as ChartConfiguration<'bar', number[], string>))
+    }
+
+    if (englishCanvas.value) {
+      chartInstances.push(createChart(englishCanvas.value, createDoughnutChart(dashboard.value.englishRequirement, 'Requisito de Inglés')))
     }
 
     if (seniorityCanvas.value) {
@@ -310,10 +348,12 @@ export function useDashboardCharts(dashboard: Ref<DashboardData>, loading: Ref<b
   return {
     trendCanvas,
     skillsCanvas,
+    softSkillsCanvas,
     forecastCanvas,
     citiesCanvas,
     modalityCanvas,
     seniorityCanvas,
+    englishCanvas,
     renderCharts,
     destroyCharts
   }

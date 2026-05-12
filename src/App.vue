@@ -11,6 +11,7 @@ import { useDashboardCharts } from './composables/useDashboardCharts'
 import {
   confidenceSeverityMap,
   formatDate,
+  formatSalaryRange,
   formatSalary,
   remoteTypeSeverityMap,
   remoteTypeOptions,
@@ -37,10 +38,12 @@ const dashboardCharts = useDashboardCharts(dashboard, loading)
 const chartCanvasRefs = [
   dashboardCharts.trendCanvas,
   dashboardCharts.skillsCanvas,
+  dashboardCharts.softSkillsCanvas,
   dashboardCharts.forecastCanvas,
   dashboardCharts.citiesCanvas,
   dashboardCharts.modalityCanvas,
-  dashboardCharts.seniorityCanvas
+  dashboardCharts.seniorityCanvas,
+  dashboardCharts.englishCanvas
 ]
 
 void chartCanvasRefs.length
@@ -73,17 +76,7 @@ const kpis = computed(() => {
     },
     {
       label: 'Salario promedio',
-      value: formatSalary({
-        title: '',
-        company: '',
-        city: '',
-        remote_type: 'presencial',
-        salary_min: avgSalary,
-        salary_max: null,
-        currency: 'COP',
-        published_at: '',
-        url: ''
-      }),
+      value: formatSalaryRange(avgSalary, null, 'COP'),
       detail: 'estimado sobre las vacantes visibles',
       icon: 'pi pi-wallet',
       tone: '#f59e0b'
@@ -134,7 +127,7 @@ function confidenceLabel(level: ConfidenceLevel) {
           <div>
             <p class="text-xs font-semibold uppercase tracking-[0.3em] text-slate-500">JobTrend AI</p>
             <h1 class="mt-1 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">
-              Mercado laboral tech claro y accionable
+              Mercado laboral
             </h1>
             <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-600">
               Conecta tus fuentes de datos y obtén insights, visualizaciones y proyecciones para tomar decisiones informadas sobre la demanda laboral en tecnología.
@@ -211,9 +204,9 @@ function confidenceLabel(level: ConfidenceLevel) {
       </section>
 
       <section class="grid gap-6 lg:grid-cols-12">
-        <Card class="xl:col-span-8 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+        <Card class="xl:col-span-12 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
           <template #content>
-            <div class="mb-5 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div class="mb-5 flex flex-col gap-3 lg:items-start lg:justify-between">
               <div>
                 <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Forecast</p>
                 <h2 class="mt-1 text-xl font-semibold text-slate-950">Demanda proyectada por skill</h2>
@@ -234,60 +227,114 @@ function confidenceLabel(level: ConfidenceLevel) {
               <Skeleton height="1.5rem" width="44%" />
               <Skeleton height="20rem" />
             </div>
-            <div v-else class="h-64 sm:h-80 lg:h-88">
+            <div v-else class="h-64 sm:h-80 lg:h-96">
               <canvas :ref="dashboardCharts.forecastCanvas" />
             </div>
           </template>
         </Card>
+      </section>
 
-        <Card class="xl:col-span-4 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+      <section class="grid gap-6 lg:grid-cols-12">
+        <Card class="xl:col-span-5 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Soft skills</p>
+                <h2 class="mt-1 text-xl font-semibold text-slate-950">Habilidades blandas más solicitadas</h2>
+              </div>
+              <Tag value="Bar chart" severity="secondary" class="rounded-full!" />
+            </div>
+
+            <div v-if="loading" class="space-y-3">
+              <Skeleton height="1.5rem" width="32%" />
+              <Skeleton height="18rem" />
+            </div>
+            <div v-else class="h-64 sm:h-72 lg:h-80">
+              <canvas :ref="dashboardCharts.softSkillsCanvas" />
+            </div>
+          </template>
+        </Card>
+
+        <Card class="xl:col-span-7 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Idioma</p>
+                <h2 class="mt-1 text-xl font-semibold text-slate-950">Requisito de inglés</h2>
+              </div>
+              <Tag value="Pie chart" severity="secondary" class="rounded-full!" />
+            </div>
+
+            <div v-if="loading" class="space-y-3">
+              <Skeleton height="1.5rem" width="32%" />
+              <Skeleton height="18rem" />
+            </div>
+            <div v-else class="h-64 sm:h-72 lg:h-80">
+              <canvas :ref="dashboardCharts.englishCanvas" />
+            </div>
+          </template>
+        </Card>
+      </section>
+
+      <section class="grid gap-6 lg:grid-cols-12">
+        <Card class="lg:col-span-4 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
           <template #content>
             <div class="mb-5 flex items-start justify-between gap-3">
               <div>
                 <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Mix del mercado</p>
-                <h2 class="mt-1 text-xl font-semibold text-slate-950">Ciudades, modalidad y seniority</h2>
+                <h2 class="mt-1 text-lg font-semibold text-slate-950">Ciudades</h2>
               </div>
-              <Tag value="Pie charts" severity="secondary" class="rounded-full!" />
+              <Tag value="Pie chart" severity="secondary" class="rounded-full!" />
             </div>
 
-            <div class="grid gap-4">
-              <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                <div class="mb-3 flex items-center justify-between gap-3">
-                  <h3 class="text-sm font-semibold text-slate-700">Ciudades</h3>
-                  <Tag value="Top 4" severity="info" class="rounded-full!" />
-                </div>
-                <div v-if="loading">
-                  <Skeleton height="11rem" />
-                </div>
-                  <div v-else class="h-40 sm:h-44">
-                    <canvas :ref="dashboardCharts.citiesCanvas" />
-                </div>
+            <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <div v-if="loading">
+                <Skeleton height="11rem" />
               </div>
-
-              <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                <div class="mb-3 flex items-center justify-between gap-3">
-                  <h3 class="text-sm font-semibold text-slate-700">Modalidad</h3>
-                  <Tag value="Remote mix" severity="info" class="rounded-full!" />
-                </div>
-                <div v-if="loading">
-                  <Skeleton height="11rem" />
-                </div>
-                  <div v-else class="h-40 sm:h-44">
-                    <canvas :ref="dashboardCharts.modalityCanvas" />
-                </div>
+              <div v-else class="h-44 sm:h-48">
+                <canvas :ref="dashboardCharts.citiesCanvas" />
               </div>
+            </div>
+          </template>
+        </Card>
 
-              <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
-                <div class="mb-3 flex items-center justify-between gap-3">
-                  <h3 class="text-sm font-semibold text-slate-700">Seniority</h3>
-                  <Tag value="Experience" severity="info" class="rounded-full!" />
-                </div>
-                <div v-if="loading">
-                  <Skeleton height="11rem" />
-                </div>
-                  <div v-else class="h-40 sm:h-44">
-                    <canvas :ref="dashboardCharts.seniorityCanvas" />
-                </div>
+        <Card class="lg:col-span-4 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Mix del mercado</p>
+                <h2 class="mt-1 text-lg font-semibold text-slate-950">Modalidad</h2>
+              </div>
+              <Tag value="Pie chart" severity="secondary" class="rounded-full!" />
+            </div>
+
+            <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <div v-if="loading">
+                <Skeleton height="11rem" />
+              </div>
+              <div v-else class="h-44 sm:h-48">
+                <canvas :ref="dashboardCharts.modalityCanvas" />
+              </div>
+            </div>
+          </template>
+        </Card>
+
+        <Card class="lg:col-span-4 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="mb-5 flex items-start justify-between gap-3">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Mix del mercado</p>
+                <h2 class="mt-1 text-lg font-semibold text-slate-950">Seniority</h2>
+              </div>
+              <Tag value="Pie chart" severity="secondary" class="rounded-full!" />
+            </div>
+
+            <div class="rounded-2xl border border-slate-200 bg-slate-50/70 p-4">
+              <div v-if="loading">
+                <Skeleton height="11rem" />
+              </div>
+              <div v-else class="h-44 sm:h-48">
+                <canvas :ref="dashboardCharts.seniorityCanvas" />
               </div>
             </div>
           </template>

@@ -1,12 +1,12 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import axios from 'axios'
-import { createFallbackDashboard, dashboardApiBase, transformLiveData, type DashboardData } from '../helpers/dashboard'
+import { createInitialDashboard, dashboardApiBase, transformLiveData, type DashboardData } from '../helpers/dashboard'
 import { Chart, registerables } from 'chart.js'
 
 Chart.register(...registerables)
 
 export function useDashboard() {
-  const fallbackData = createFallbackDashboard()
+  const fallbackData = createInitialDashboard()
   const loading = ref(true)
   const refreshing = ref(false)
   const lastUpdated = ref('Cargando datos...')
@@ -61,19 +61,26 @@ export function useDashboard() {
     }
 
     try {
-      const [overviewResponse, forecastResponse, confidenceResponse, jobsResponse] = await Promise.all([
+      const [overviewResponse, forecastResponse, confidenceResponse, jobsResponse] = await Promise.allSettled([
         axios.get(`${dashboardApiBase}/jobs/analytics/overview?top_n=8`),
         axios.get(`${dashboardApiBase}/jobs/analytics/forecast?top_n=5&months_ahead=3`),
         axios.get(`${dashboardApiBase}/jobs/analytics/forecast-confidence?top_n=5&test_horizon_months=3`),
-        axios.get(`${dashboardApiBase}/jobs/search?limit=50&offset=0`)
+        axios.get(`${dashboardApiBase}/jobs/`)
       ])
 
-      dashboard.value = transformLiveData(overviewResponse.data, forecastResponse.data, confidenceResponse.data, jobsResponse.data, fallbackData)
-      lastUpdated.value = `Actualizado ${new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}`
+      const overviewData = overviewResponse.status === 'fulfilled' ? overviewResponse.value.data : null
+      const forecastData = forecastResponse.status === 'fulfilled' ? forecastResponse.value.data : null
+      const confidenceData = confidenceResponse.status === 'fulfilled' ? confidenceResponse.value.data : null
+      const jobsData = jobsResponse.status === 'fulfilled' ? jobsResponse.value.data : null
+
+      dashboard.value = transformLiveData(overviewData, forecastData, confidenceData, jobsData, fallbackData)
+      lastUpdated.value = dashboard.value.jobs.length > 0
+        ? `Actualizado ${new Date().toLocaleTimeString('es-CO', { hour: '2-digit', minute: '2-digit' })}`
+        : 'Sin datos disponibles'
     }
     catch {
       dashboard.value = fallbackData
-      lastUpdated.value = 'Usando datos de demostración'
+      lastUpdated.value = 'Sin datos disponibles'
     }
     finally {
       loading.value = false
