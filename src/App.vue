@@ -162,8 +162,8 @@ function confidenceLabel(level: ConfidenceLevel) {
         </Card>
       </section>
 
-      <section class="grid gap-6 lg:grid-cols-12">
-        <Card class="xl:col-span-7 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+      <section class="">
+        <Card class="border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
           <template #content>
             <div class="mb-5 flex items-start justify-between gap-3">
               <div>
@@ -179,26 +179,6 @@ function confidenceLabel(level: ConfidenceLevel) {
             </div>
             <div v-else class="h-64 sm:h-72 lg:h-80">
               <canvas :ref="dashboardCharts.trendCanvas" />
-            </div>
-          </template>
-        </Card>
-
-        <Card class="xl:col-span-5 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
-          <template #content>
-            <div class="mb-5 flex items-start justify-between gap-3">
-              <div>
-                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Skills</p>
-                <h2 class="mt-1 text-xl font-semibold text-slate-950">Top skills</h2>
-              </div>
-              <Tag value="Bar chart" severity="secondary" class="rounded-full!" />
-            </div>
-
-            <div v-if="loading" class="space-y-3">
-              <Skeleton height="1.5rem" width="32%" />
-              <Skeleton height="18rem" />
-            </div>
-            <div v-else class="h-64 sm:h-72 lg:h-80">
-              <canvas :ref="dashboardCharts.skillsCanvas" />
             </div>
           </template>
         </Card>
