@@ -40,6 +40,7 @@ const chartCanvasRefs = [
   dashboardCharts.skillsCanvas,
   dashboardCharts.softSkillsCanvas,
   dashboardCharts.forecastCanvas,
+  dashboardCharts.forecastTop10Canvas,
   dashboardCharts.citiesCanvas,
   dashboardCharts.modalityCanvas,
   dashboardCharts.seniorityCanvas,
@@ -204,17 +205,17 @@ function confidenceLabel(level: ConfidenceLevel) {
       </section>
 
       <section class="grid gap-6 lg:grid-cols-12">
-        <Card class="xl:col-span-12 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+        <Card class="xl:col-span-6 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
           <template #content>
             <div class="mb-5 flex flex-col gap-3 lg:items-start lg:justify-between">
               <div>
                 <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Forecast</p>
-                <h2 class="mt-1 text-xl font-semibold text-slate-950">Demanda proyectada por skill</h2>
+                <h2 class="mt-1 text-xl font-semibold text-slate-950">Demanda proyectada (Top 5)</h2>
               </div>
 
               <div class="flex flex-wrap gap-2">
                   <Tag
-                    v-for="skill in dashboard.forecastSkills"
+                    v-for="skill in dashboard.forecastSkills.slice(0, 5)"
                     :key="skill.skill"
                     :value="`${skill.skill} ${skill.growth_pct >= 0 ? '+' : ''}${skill.growth_pct}%`"
                     :severity="skill.growth_pct >= 0 ? 'info' : 'danger'"
@@ -229,6 +230,27 @@ function confidenceLabel(level: ConfidenceLevel) {
             </div>
             <div v-else class="h-64 sm:h-80 lg:h-96">
               <canvas :ref="dashboardCharts.forecastCanvas" />
+            </div>
+          </template>
+        </Card>
+
+        <Card class="xl:col-span-6 border border-slate-200 bg-white! text-slate-900! shadow-sm shadow-slate-200/60">
+          <template #content>
+            <div class="mb-5 flex flex-col gap-3 lg:items-start lg:justify-between">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-[0.24em] text-slate-500">Forecast</p>
+                <h2 class="mt-1 text-xl font-semibold text-slate-950">Proyección final (Top 10)</h2>
+              </div>
+
+              <Tag value="Bar chart" severity="secondary" class="rounded-full!" />
+            </div>
+
+            <div v-if="loading" class="space-y-3">
+              <Skeleton height="1.5rem" width="44%" />
+              <Skeleton height="20rem" />
+            </div>
+            <div v-else class="h-64 sm:h-80 lg:h-96">
+              <canvas :ref="dashboardCharts.forecastTop10Canvas" />
             </div>
           </template>
         </Card>

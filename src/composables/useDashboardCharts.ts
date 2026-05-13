@@ -9,6 +9,7 @@ export function useDashboardCharts(dashboard: Ref<DashboardData>, loading: Ref<b
   const skillsCanvas = ref<HTMLCanvasElement | null>(null)
   const softSkillsCanvas = ref<HTMLCanvasElement | null>(null)
   const forecastCanvas = ref<HTMLCanvasElement | null>(null)
+  const forecastTop10Canvas = ref<HTMLCanvasElement | null>(null)
   const citiesCanvas = ref<HTMLCanvasElement | null>(null)
   const modalityCanvas = ref<HTMLCanvasElement | null>(null)
   const seniorityCanvas = ref<HTMLCanvasElement | null>(null)
@@ -93,7 +94,7 @@ export function useDashboardCharts(dashboard: Ref<DashboardData>, loading: Ref<b
     }
 
     if (forecastCanvas.value) {
-      const forecastData = dashboard.value.forecastSkills
+      const forecastData = dashboard.value.forecastSkills.slice(0, 5)
 
       chartInstances.push(createChart(forecastCanvas.value, {
         type: 'line',
@@ -137,6 +138,42 @@ export function useDashboardCharts(dashboard: Ref<DashboardData>, loading: Ref<b
         },
         plugins: [projectionWindowPlugin]
       } as ChartConfiguration<'line', number[], string>))
+    }
+
+    if (forecastTop10Canvas.value) {
+      const forecastTop10Data = dashboard.value.forecastSkills.slice(0, 10)
+      const latestProjection = forecastTop10Data.map((skill) => {
+        const lastForecast = skill.forecast[skill.forecast.length - 1]
+        return lastForecast?.count ?? 0
+      })
+
+      chartInstances.push(createChart(forecastTop10Canvas.value, {
+        type: 'bar',
+        data: {
+          labels: forecastTop10Data.map((item) => item.skill),
+          datasets: [
+            {
+              label: 'Proyección final',
+              data: latestProjection,
+              borderRadius: 10,
+              backgroundColor: palette.primary,
+              hoverBackgroundColor: '#3b82f6',
+              barThickness: 16
+            }
+          ]
+        },
+        options: {
+          ...commonChartOptions(),
+          indexAxis: 'y',
+          plugins: {
+            legend: { display: false }
+          },
+          scales: {
+            x: scaleOptions(true),
+            y: scaleOptions(false)
+          }
+        }
+      } as ChartConfiguration<'bar', number[], string>))
     }
 
     if (citiesCanvas.value) {
@@ -350,6 +387,7 @@ export function useDashboardCharts(dashboard: Ref<DashboardData>, loading: Ref<b
     skillsCanvas,
     softSkillsCanvas,
     forecastCanvas,
+    forecastTop10Canvas,
     citiesCanvas,
     modalityCanvas,
     seniorityCanvas,
